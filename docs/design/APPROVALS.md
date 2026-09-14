@@ -58,6 +58,14 @@ Artifact: [two-room modular map proof](prototype/modular-map.html).
 
 September 12, 2026 — the user reviewed the real tile renderer and said it “looks okay.” This approves the modular implementation direction: shared map parts, collision, keyboard movement, and an adjoining-room doorway transition. It does not approve candidate asset scale, the full product UI, final animation, or visual polish. Those can improve independently without reopening the room-model decision.
 
+### Company-wide Studio and curated growth
+
+Status: `approved product direction; implementation pending`
+
+September 13, 2026 — the user replaced project-owned and doorway-expanded rooms with one company-wide Office driven by the employee roster. The initial Studio should be a deliberately composed six-to-eight-workstation layout. Local employees, including available staff, occupy its desks; remote employees remain in operational views without appearing physically or consuming a workstation. Empty desks remain intentional and normal roster changes do not resize or rearrange the room. The adjoining Quiet workroom must be removed from the product flow. Growth beyond Studio capacity requires a separately designed and visually approved larger layout; do not procedurally append generic rooms if that reduces the office's visual quality. This supersedes the two-room proof as a product model while retaining it as renderer evidence.
+
+The same approval fixes the initial character model: employees select distinct predefined complete character identities and customize only their names. Positions may repeat independently of character identity and execution location.
+
 ## Packet 0A — interactive prototype
 
 Status: `needs_user_review`

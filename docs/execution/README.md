@@ -10,7 +10,7 @@ No framework, dependency versions, commands, API schema, or database schema have
 
 ## Sequence
 
-First useful release: **00 → 0A → 1A → 1B → 2A → 2B → 2C → 2D → 3A → 3B → 3C**.
+First useful release: **00 → 0A → 1A → 1B → 2A → 2B → 2C → 2D → 3A → 3B → 3C → 3D → 3E**.
 
 Later capabilities: **4A → 4B → 5A → 5B**. Optional Coder is **6**, after 5B. Office manager is **7**, after 5B; it does not require Coder.
 
@@ -44,7 +44,7 @@ Packets identify ordinary implementation work and the decisions that merit a mor
 
 Escalate with a short written report when a failure repeats after two materially different attempts, a protocol is unsupported, or a contract must change. Include the smallest reproduction, attempted fixes, logs, and one recommendation. A stronger session resolves the narrow uncertainty, records the decision, and hands execution back. Do not let either model silently substitute logs for a real terminal, erase dirty work, bypass approvals, or accept weaker visual quality.
 
-Use focused review at the execution contract (00), visual direction (0A), recovery (2D), delivery (3C), account isolation (4A), and scheduler (5A) boundaries. Review is evidence-based and can happen in the current session or a later user-selected session. It is not a requirement to create extra agents.
+Use focused review at the execution contract (00), visual direction (0A), recovery (2D), employee/office system (3B), task composition (3C), delivery (3E), account isolation (4A), and scheduler (5A) boundaries. Review is evidence-based and can happen in the current session or a later user-selected session. It is not a requirement to create extra agents.
 
 ## Copyable starting prompt
 

@@ -1,37 +1,29 @@
-# Character assembly — draft v1
+# Character identity contract — v2
 
-Status: `approved direction; assets not yet generated`
+Status: `supersedes editable assembly for initial release; assets incomplete`
 
-Pixel Harness should not need a bespoke illustration for every employee. An employee is assembled from original compatible sprite layers at render time, then cached as a regular sprite strip for that session.
+Pixel Harness initially ships a curated roster of complete predefined character families. The user selects an unused identity and names the employee. Position, skills, execution location, and project assignment never determine appearance.
 
-## The recipe
+## Identity and uniqueness
 
-Every employee stores a stable, editable appearance recipe:
+Every employee stores one stable character identity:
 
 ```text
-body:        base-01
-skin:        umber-02
-hair:        short-auburn-03
-top:         cardigan-navy-01
-bottom:      trousers-charcoal-01
-accent:      moss-01
-accessory:   glasses-round-01
+character_id: studio-character-01
 ```
 
-The recipe is selected deterministically from the employee ID only as a default. The user can edit it; a name must never silently imply a face, gender, ethnicity, or role. The saved recipe, not a generated image, is the durable identity.
+One active employee may own a character identity at a time. Used identities are unavailable in the creation picker. Deactivating an employee releases the identity for future use while retained history continues to reference it. The initial release exposes no skin, hair, clothing, accessory, or palette editing.
 
-## Source-layer contract
+## Character-family contract
 
 - Every layer has the same `6 columns × 4 rows` strip: six walk frames for down, left, right, then up.
 - Each cell uses one fixed source canvas and the exact same feet/bottom-center anchor. The first production candidate is `48 × 64` source pixels per cell (displayed only at integer scale), subject to final grid QA.
-- Draw order: body/base → lower clothing → top clothing → head/face → hair or hat → accessory → optional held item. Layers may intentionally opt out of a direction/frame, but must still preserve the cell slot.
-- All layers use indexed colors or named palette slots (`skin`, `hair`, `fabric`, `accent`) where possible. Palette substitutions can provide variety without multiplying source art.
-- A compatibility table prevents impossible combinations (for example, a full hat may replace the hair layer rather than overlap it).
-- Build-time validation must reject a layer with an opaque canvas background, a different grid, a shifted foot anchor, clipped limbs, or a different frame count.
+- Every identity includes standing, four-direction six-frame walking, four seated directions, four sleeping directions, and a portrait.
+- Build-time validation must reject a family with an opaque canvas background, a shifted foot anchor, clipped limbs, an incomplete state, or inconsistent identity across frames.
 
-## Scale without generic clones
+## Distinct roster
 
-A modest authored kit yields variety while retaining art direction: 6 base silhouettes × 8 hair/hat options × 8 tops × 5 palette accents × 4 accessories creates more than 7,000 valid appearances before compatibility rules. That is enough for an unconstrained roster without claiming every combination is equally distinct; new parts can be added later without changing existing employee recipes.
+The first asset pass targets at least six genuinely distinct identities, not recolors of one silhouette. More character families expand the maximum active roster without changing existing employee records. Position choices may repeat across these identities.
 
 ## Animation and motion
 

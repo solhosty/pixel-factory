@@ -59,19 +59,22 @@ export class CodexExecution {
     if (message.method === 'process/exited' && message.params?.processHandle === this.processHandle) { this.db.appendEvent(this.attemptId, 'attempt.terminal_detached', { exit_code: message.params?.exitCode ?? null }); this.stopped = true; }
   }
   private async waitForSocket(path: string) { for (let attempt = 0; attempt < 80; attempt++) { if (existsSync(path)) { try { await new Promise<void>((resolve, reject) => { const socket = net.createConnection(path); socket.once('connect', () => { socket.end(); resolve(); }); socket.once('error', reject); }); return; } catch {} } await new Promise((resolve) => setTimeout(resolve, 100)); } throw new Error('Codex app-server did not create its private socket.'); }
-  async start(workspaces: string[], prompt: string) {
+  async start(workspaces: string[], prompt: string, resumeThreadId?: string | null) {
     this.runtimeDir = mkdtempSync(join(tmpdir(), 'ph-')); const socketPath = join(this.runtimeDir, 'c.sock');
     try {
       this.appServer = spawn('codex', ['app-server', '--listen', `unix://${socketPath}`], { stdio: ['ignore', 'pipe', 'pipe'] });
-      if (this.appServer.pid) this.db.activateCapacity(this.attemptId, this.appServer.pid);
+      if (this.appServer.pid) this.db.activateCapacity(this.attemptId, this.appServer.pid, `codex-app-server:${this.appServer.pid}:${Date.now()}`);
       this.appServer.on('error', () => {});
       this.appServer.stderr.on('data', (chunk) => this.db.appendEvent(this.attemptId, 'attempt.adapter_stderr', { text: redact(String(chunk)).slice(-2000) }));
       await this.waitForSocket(socketPath); chmodSync(socketPath, 0o600);
       this.rpc = new UnixRpc(socketPath, (message) => this.event(message)); await this.rpc.connect();
       await this.rpc.call('initialize', { clientInfo: { name: 'pixel-harness', title: 'Pixel Harness', version: '0.1.0' }, capabilities: { experimentalApi: true, requestAttestation: false } });
-      const thread = await this.rpc.call('thread/start', { cwd: workspaces[0], runtimeWorkspaceRoots: workspaces, sandbox: 'workspace-write', approvalPolicy: 'never', historyMode: 'paginated' }); const threadId = thread.thread.id;
-      this.db.setProviderIdentity(this.attemptId, { threadId }); this.db.appendEvent(this.attemptId, 'attempt.started', { workspace_count: workspaces.length }, threadId);
-      const turn = await this.rpc.call('turn/start', { threadId, input: [{ type: 'text', text: prompt }] }); this.db.setProviderIdentity(this.attemptId, { threadId, turnId: turn.turn.id });
+      const thread = resumeThreadId
+        ? await this.rpc.call('thread/resume', { threadId: resumeThreadId, cwd: workspaces[0], runtimeWorkspaceRoots: workspaces, sandbox: 'workspace-write', approvalPolicy: 'never', historyMode: 'paginated' })
+        : await this.rpc.call('thread/start', { cwd: workspaces[0], runtimeWorkspaceRoots: workspaces, sandbox: 'workspace-write', approvalPolicy: 'never', historyMode: 'paginated' });
+      const threadId = thread.thread.id;
+      this.db.setProviderIdentity(this.attemptId, { threadId }); this.db.appendEvent(this.attemptId, resumeThreadId ? 'attempt.resumed' : 'attempt.started', { workspace_count: workspaces.length }, threadId);
+      const turn = await this.rpc.call('turn/start', { threadId, input: [{ type: 'text', text: resumeThreadId ? `Continue after the Pixel Harness office was safely closed. ${prompt}` : prompt }] }); this.db.setProviderIdentity(this.attemptId, { threadId, turnId: turn.turn.id });
       await this.rpc.call('process/spawn', { command: ['codex', '--remote', `unix://${socketPath}`, 'resume', threadId, '--no-alt-screen'], cwd: workspaces[0], processHandle: this.processHandle, tty: true, streamStdin: true, streamStdoutStderr: true, size: { rows: 30, cols: 100 }, env: { TERM: 'xterm-256color' }, timeoutMs: 600_000 });
     } catch (error) { await this.disposeOwner(); throw error; }
   }

@@ -12,14 +12,14 @@ Inspect `src/lib/office/sprites.ts` for measured source boxes and palette decodi
 - Standing/walking actor footprint: approximately one floor cell; visual body about 1.5 cells wide and 2.65 high, anchored by the feet.
 - Chairs are persistent workstation fixtures. Seated/sleeping actor art excludes the chair; render a separate directional chair behind or in front of the body as appropriate. A chair remains when its coworker stands or walks away. Visual body about 1.65 cells wide and 2.7 high. Preserve actual head scale across states; do not stretch arbitrary crop ratios to meet these numbers.
 - Walk timing: six source frames per facing; current runtime uses 130 ms per coworker frame. Align every crop to a consistent foot anchor and verify the loop in motion. Source grids are not presumed uniform.
-- Scene map: normal floor/structure/decor/fixture/actor/light layers; main room currently 20 × 21, adjoining room 12 × 10. Responsive display scaling must not change collisions or geometry.
+- Scene map: normal floor/structure/decor/fixture/actor/light layers. The current 20 × 21 room and 12 × 10 adjoining proof are provisional; Packet 3B replaces them with one curated six-to-eight-workstation Studio. Responsive display scaling must not change collisions or geometry.
 - Furniture: use measured source crop aspect ratios. Scene placements may have deliberate perspective compression, but never stretch a side-facing tall desk into a front-facing wide desk.
 
 ## Metadata to preserve for each family
 
 Keep source path, source width/height, crop boxes, logical render size, facing convention, state/frame order, foot or bottom-center anchor, collision footprint, palette slots, and generation prompt. Add optional socket anchors for keyboard/hands, chair/hips, and lamp emission when required by the scene.
 
-Facings are south=0, west=1, east=2, north=3. Keep this identical for input, sprites, and metadata. Walk frames and idle frames must share their orientation and identity; every appearance recipe must apply across walking, seated, sleeping, and portraits.
+Facings are south=0, west=1, east=2, north=3. Keep this identical for input, sprites, and metadata. Walk frames and idle frames must share their orientation and identity; every predefined character must remain consistent across walking, seated, sleeping, and portraits.
 
 ## Scene mechanics
 

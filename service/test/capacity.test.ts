@@ -23,7 +23,10 @@ test('simultaneous admissions reserve once, retain waiting work, and reconcile b
  assert.ok(db.db.prepare('SELECT * FROM capacity_waits WHERE task_id=?').get(task.task_id));
  const attempt=(results.find(r=>r.status==='fulfilled') as PromiseFulfilledResult<any>).value;
  db.activateCapacity(attempt.attempt_id,process.pid);
- assert.throws(()=>db.reconcileCapacity(attempt.attempt_id),{code:'OWNER_STILL_ALIVE'});
+ // The fixture PID belongs to Node, not the recorded Codex app-server. Reconciliation
+ // treats it as PID reuse instead of retaining or signalling an unrelated process.
+ assert.doesNotThrow(()=>db.reconcileCapacity(attempt.attempt_id));
+ db.db.prepare("UPDATE capacity_slots SET state='active',owner_pid=NULL WHERE attempt_id=?").run(attempt.attempt_id);
  db.releaseExecution(attempt.attempt_id,'cancel');
  assert.equal(db.hostCapacity('local').occupied,1);
  db.db.prepare('UPDATE capacity_slots SET owner_pid=NULL WHERE attempt_id=?').run(attempt.attempt_id); // fixture acknowledges process exit
@@ -34,7 +37,7 @@ test('simultaneous admissions reserve once, retain waiting work, and reconcile b
 test('shared host and multiple sessions count slots rather than employees; decreases keep work',()=>{
  const {db,input}=setup(); const attempt=db.startExecution(input);
  db.db.prepare("INSERT INTO execution_environments VALUES ('sibling','local','Shared host fixture','coder','disconnected',1)").run();
- const sid='fixture-session',aid='fixture-attempt';db.db.prepare('INSERT INTO sessions VALUES (?,?,?,?,?,?)').run(sid,input.task_id,input.employee_id,'Second session fixture','running',new Date().toISOString());db.db.prepare('INSERT INTO attempts VALUES (?,?,NULL,NULL,NULL,NULL,?,?)').run(aid,sid,'[]',new Date().toISOString());db.db.prepare("INSERT INTO capacity_slots VALUES (?, 'local', 'sibling', 'active', NULL)").run(aid);
+ const sid='fixture-session',aid='fixture-attempt';db.db.prepare('INSERT INTO sessions VALUES (?,?,?,?,?,?)').run(sid,input.task_id,input.employee_id,'Second session fixture','running',new Date().toISOString());db.db.prepare('INSERT INTO attempts (attempt_id,session_id,provider_thread_id,provider_turn_id,provider_item_id,provider_process_id,workspace_set_json,created_at) VALUES (?,?,NULL,NULL,NULL,NULL,?,?)').run(aid,sid,'[]',new Date().toISOString());db.db.prepare("INSERT INTO capacity_slots VALUES (?, 'local', 'sibling', 'active', NULL)").run(aid);
  assert.equal(db.listEmployees().length,1);assert.equal(db.environments().find(e=>e.environment_id==='sibling')?.capacity.occupied,2);
  db.setCapacityCeiling('local',0);assert.equal(db.hostCapacity('local').occupied,2);assert.equal(db.executionDetail(String(attempt.attempt_id)).lease_state,'active');db.close();
 });

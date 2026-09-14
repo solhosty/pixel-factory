@@ -10,7 +10,7 @@ Confirmed visual direction: top-down RPG pixel art, with Stardew Valley as a ref
 
 Confirmed: this is an independent application. Research-harness is a reference for execution concepts and potential selective code reuse, not a required backend.
 
-Confirmed: a project supports multiple local folders and repositories from the first useful release, such as separate frontend and backend repositories in one room.
+Confirmed: a project supports multiple local folders and repositories from the first useful release, such as separate frontend and backend repositories represented in the same company office.
 
 Confirmed: visual design, animation, and interaction feel are core product requirements. High-quality reusable assets and components are foundational deliverables, with dedicated time in the first milestones.
 
@@ -24,9 +24,9 @@ Confirmed visual ambition: the app should be stunning in motion and in everyday 
 
 ## Product
 
-A local, open-source workspace for managing coding projects through a small pixel-art office. Each project has a room. The user creates a character, visits rooms, assigns tasks to employees, answers questions, and reviews completed work in a sit-down demo.
+A local, open-source workspace for managing coding projects through a small pixel-art company office. Projects organize objectives, folders, tasks, and decisions without owning separate physical rooms. The user enters the office, assigns tasks to employees, answers questions, and reviews completed work in a sit-down demo.
 
-The office should make real work easier to understand: what is moving, what needs a decision, what is waiting for usage, and what has been verified. Movement, character customization, and room interactions should be enjoyable, with direct navigation available when the user just wants to get something done. Use Gather-like spatial navigation and Stardew-like warmth as references, with original art and identity.
+The office should make real work easier to understand: what is moving, what needs a decision, what is waiting for usage, and what has been verified. Movement, distinct predefined characters, and office interactions should be enjoyable, with direct navigation available when the user just wants to get something done. Use Gather-like spatial navigation and Stardew-like warmth as references, with original art and identity.
 
 “Local” means the app and its records live on the user's machine, without a required hosted control service. Connected harnesses still contact their providers. Optional Coder execution would run code remotely and must be clearly labeled.
 
@@ -34,7 +34,7 @@ The office should make real work easier to understand: what is moving, what need
 
 The default coworker view is a list of all coworkers across projects, including available staff. Offer All, In office, and Remote filters. Provide an office-wide task board spanning every project, showing task, project, assigned coworker or unassigned state, status, execution location, and blocking reason. Filter by project, coworker, and status, and open the same task/session records from the board. This follows research-harness as a product reference without requiring its backend.
 
-The office is an alternate spatial view: in-office coworkers execute locally and appear in rooms; remote coworkers work through Coder and appear in the list without being physically present in the office. Both views open the same employee, assignment, and session records. Execution location and connection health must be visible; a remote label alone does not prove a working Coder integration.
+The office is an alternate spatial view: local coworkers, including available staff, occupy the company office; remote coworkers work through Coder and appear in the list without being physically present in the office or consuming a workstation. Projects determine the work shown at desks, in conversations, and through filters rather than selecting a different room. Both views open the same employee, assignment, and session records. Execution location and connection health must be visible; a remote label alone does not prove a working Coder integration.
 
 ## Art, animation, and interaction foundation
 
@@ -42,7 +42,7 @@ Build a coherent kit that can produce many rooms, employees, and interactions wi
 
 - **Art direction:** define pixel scale, perspective, proportions, palette, lighting, outlines, typography, and supported zoom behavior. Characters, furniture, rooms, and interface panels should look like they belong together.
 - **Environment kit:** modular floors, walls, doors, corners, desks, seating, meeting furniture, and props. Define placement anchors, collision footprints, draw order, and interaction points so assets work together in actual scenes.
-- **Character kit:** compatible body, hair, clothing, and accessory layers with consistent pivots and directional frames. Validate customization combinations while walking, sitting, working, and sleeping.
+- **Character kit:** a roster of distinct predefined character families with consistent pivots and complete directional frames. Validate every identity while walking, sitting, working, and sleeping. Initial users customize employee names, not character parts.
 - **Animation kit:** reusable idle, walk, turn, sit, work, request-attention, sleep/wake, and meeting transitions. Specify timing, interruptibility, and how animations respond to execution state. Decorative movement must not imply task progress that has not occurred.
 - **Interface kit:** consistent panels, buttons, focus/hover/pressed states, dialogue, option comparisons, status indicators, and demo controls. Keep code and longer conversations comfortably readable alongside the pixel world.
 - **Asset pipeline:** retain editable source files and reproducible exports, with stable asset identifiers and documented dimensions, anchors, layers, and animation clips. Track source, license, attribution, and redistribution rights for every external asset so contributors can build and share the repository.
@@ -54,10 +54,12 @@ Treat composition, character personality, material detail, and motion timing as 
 
 ## Proposed working model
 
-- **Project:** an organizational container with an objective, milestones, tasks, and one room. It links to local folders rather than being identical to a folder. Marking it done archives the room while retaining its history; reopening restores it.
+- **Office:** the company-wide physical workspace. Its first curated Studio layout supports six to eight local employees with persistent workstations and intentional empty desks. It does not resize or rearrange for ordinary roster changes. Growth beyond that capacity uses another deliberately composed and visually approved layout, not procedural room appendage.
+- **Project:** an organizational container with an objective, milestones, tasks, and office-visible work context. It links to local folders rather than being identical to a folder. Marking it done archives the project while retaining its history; reopening restores it without creating or removing a physical room.
 - **Local folder:** a user-selected directory, with its own saved path and availability status. Users can choose existing folders or create folders at chosen locations, then attach multiple folders/repositories to one project. A project can begin with planning before folders are attached. Each executable task selects its relevant folders and a primary working directory; an employee can work across the selected repositories when its harness supports that configuration.
 - **User character:** an editable avatar used to navigate and interact.
-- **Employee:** a persistent member of staff with a stable identity, appearance, configuration, and assignment history. Employees remain available after completing tasks and can take new assignments across projects. Their task sessions are separate records; persistent identity does not require one endless native harness session or automatically carry private task context into unrelated projects. Initially, an employee works on one active assignment at a time.
+- **Employee:** a persistent member of staff with a stable identity, name, position, unique predefined character identity, skill configuration, execution location, and assignment history. Positions may repeat. Initial character setup is name-only; one active employee owns each complete character identity. Employees remain available after completing tasks and can take new assignments across projects. Their task sessions are separate records; persistent identity does not require one endless native harness session or automatically carry private task context into unrelated projects. Initially, an employee works on one active assignment at a time.
+- **Position and skills:** an employee has one built-in position—Designer, Frontend Engineer, Backend Engineer, Fullstack Engineer, Security Engineer, Project Manager, or Marketing—which contributes default skills. Customers may enable built-in skills and add or author reusable employee skills. A session snapshots the resolved position defaults, employee skills, project guidance, and task instructions. Skills never grant permissions, accounts, tools, environments, or folder scope by implication.
 - **Task:** an objective with acceptance criteria, conversation, decisions, changes, and evidence. It survives process failures and harness changes.
 - **Session / attempt:** a session groups working context; an attempt is an individual harness execution. Retrying must not erase earlier work or pretend a new process has the old native context.
 - **Multiple sessions per assignment:** one employee can own several sessions for the same task, sequentially or concurrently when supported. Sessions can have explicit purposes such as implementation, investigation, or review, and can use different eligible harnesses/accounts. They remain visible beneath the employee with separate transcripts, state, working scope, and verification. Additional sessions do not require additional staff characters. The employee retains responsibility for combining their results into the task's final demo.
@@ -124,21 +126,21 @@ After the user explicitly starts the deferred visual phase, present still pictur
 
 Deliver the initial environment, character, animation, and interface kits with editable sources and the development gallery. Choose the rendering approach based on this prototype's requirements and measured behavior. Do not scale up room content before proving the components compose cleanly.
 
-**Exit evidence:** user approval of the interactive visual direction; a second room assembled from the same kit; multiple character customizations sharing the animation set; working state transitions with no snapping or clipping; and measured performance on the agreed target. Capture a short walkthrough for review, alongside the runnable prototype.
+**Exit evidence:** user approval of the interactive visual direction; a populated six-to-eight-workstation Studio assembled from the reusable kit; multiple distinct character identities sharing the animation contract; working state transitions with no snapping or clipping; and measured performance on the agreed target. Capture a short walkthrough for review, alongside the runnable prototype.
 
 ## Milestone 1 — a usable office with persisted projects
 
-Create/edit the user avatar; create projects and their rooms; walk or click to navigate; inspect a room's tasks and milestones. Provide a searchable project list, keyboard access to core actions, and reduced-motion behavior. Archive and reopen completed projects without deleting code or history.
+Create projects; walk or click through the company office; inspect each project's tasks and milestones from desks, conversations, filters, and direct navigation. Provide a searchable project list, keyboard access to core actions, and reduced-motion behavior. Archive and reopen completed projects without deleting code or history or changing the physical office.
 
 Maintain a persistent staff roster. Assign an existing employee or add a new one, retain appearance and assignment history after task completion, and return unassigned employees to an available state. Archiving a project preserves its task records and releases its staff for new assignments. Verify that one employee can finish a task and start another without losing identity or leaking the previous project's task context.
 
 Provide a local folder picker and saved-folder list alongside the project list. Show the full selected path and let the user attach a folder to a project or create a project around it. Selecting a folder does not move or copy its contents. Handle missing, moved, and inaccessible folders with a relink flow. Unlinking a folder or archiving a project must not delete files. Show the effective working folder before dispatch, including when execution uses a derived task worktree.
 
-Let users name each attached folder by role, such as frontend, backend, or shared library. A task selects one or more attached folders rather than implicitly operating on every folder in the project. Preserve repository identities, branches, changes, and verification separately while presenting their combined progress in the same project room.
+Let users name each attached folder by role, such as frontend, backend, or shared library. A task selects one or more attached folders rather than implicitly operating on every folder in the project. Preserve repository identities, branches, changes, and verification separately while presenting their combined progress through the same company office.
 
 Use labeled simulated employees for this milestone. Build on the approved kit from milestone 0A. New states and interactions enter the shared gallery before being reused across rooms. Keep visual and motion review in each subsequent milestone's acceptance criteria.
 
-**Exit evidence:** create two projects, attach separate frontend and backend folders to one project, select both for a task, navigate between rooms, edit the avatar, archive/reopen a project, and reload with state intact. Relink a moved folder without losing task history. Show this flow in the running UI.
+**Exit evidence:** create two projects, attach separate frontend and backend folders to one project, select both for a task, switch project context from the same office, archive/reopen a project, and reload with state intact. Relink a moved folder without losing task history. Show this flow in the running UI.
 
 Include the mailbox/noticeboard and pending-request interactions in the persisted office shell, using simulated entries until real execution is available.
 
@@ -174,6 +176,12 @@ For longer projects, use the same proposal → feedback → revision → approva
 
 Both loops use the meeting interaction. Employees arrive with reviewable options, not just an open-ended question. Waiting for approval is a distinct state that survives reload and session handoff. Silence or elapsed time is never approval.
 
+Before final verification and delivery, establish the employee and office system. Offer seven repeatable built-in positions with curated default skills and customer-selected or customer-authored employee skills. Snapshot the resolved skill set for every session without expanding its permissions. Replace editable appearance recipes with a roster of complete predefined character identities, each assignable to only one active employee; initial setup customizes only the employee name.
+
+Use one company-wide office rather than project-owned rooms. The first Studio is a deliberately composed six-to-eight-workstation layout. Local employees, including available staff, occupy desks; remote employees remain in operational views and consume no physical capacity. Remove the adjoining Quiet workroom from the product flow. Do not procedurally append generic rooms, resize the Studio for ordinary roster changes, or trade composition quality for hypothetical scale. A larger office is a separately designed, versioned, and visually approved layout.
+
+Make assigning work an employee-centered action. Clicking an employee in the Office or coworker sidebar opens the same employee record and can start one shared task composer with that employee preselected. The composer accepts text, images, files, selected project folders, tagged project/employee/task context, and task-specific instructions while keeping planning, saved assignment, and execution authorization distinct. Persist every input before dispatch and pass it explicitly into the resulting session; entering through an employee must not create a separate task model or bypass the one-active-assignment rule.
+
 An employee invites the user to a review meeting when work is ready. The meeting opens a focused presentation of the goal, changes, demonstration, checks, and known gaps. Start with screenshots and/or a runnable preview for UI work; use relevant command output or an API demonstration for other work. Add recording later if it improves the review.
 
 The user accepts the work or requests changes from the meeting. New changes make older verification/demo evidence visibly stale. Failed checks or missing demonstrations cannot silently become verified completion.
@@ -196,7 +204,7 @@ A cross-harness handoff carries the task objective, decisions, relevant conversa
 
 ## Milestone 5 — parallel employees and collaboration
 
-Run independent tasks in isolated workspaces with explicit capacity limits. Keep each task attached to its recorded workspace through retries. Show dependencies and integration status in the project room.
+Run independent tasks in isolated workspaces with explicit capacity limits. Keep each task attached to its recorded workspace through retries. Show dependencies and integration status through the company office and project views.
 
 Enable parallel sessions within an employee's assignment using the same scheduler as parallel employees. Count active sessions/processes against capacity, not just visible characters. Give concurrent writers isolated checkouts or explicit exclusive ownership; sessions must not silently write to the same checkout. A review session uses an identified revision or snapshot. Preserve per-session ownership and continuation records through shutdown and automatic resume, then integrate and verify the combined result before the employee's demo. Sequential multiple-session history belongs in the initial data model; concurrent execution arrives in this milestone.
 

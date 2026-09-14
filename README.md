@@ -2,7 +2,7 @@
 
 A local, open-source pixel office for coding projects. Persistent employees run tasks through users' harness connections, ask for decisions, and demonstrate verified work.
 
-**Current state: Packet 2A is ready for review.** The browser UI and local Node service persist projects, staff appearance recipes, task folder scopes, and one explicitly launched Codex session with a service-owned native terminal. Planning/approval gating, fallback, parallel work, and recovery remain later packets. Browser-first; local execution service; macOS first; Codex first.
+**Current state: Packet 3A is complete; Packet 3B is in progress in its dedicated task.** The browser UI and local Node service persist projects, staff, task folder scopes, approved plans and guidance, versioned decision meetings and task gates, execution capacity, recovery state, and explicitly launched Codex sessions with a service-owned native terminal. The current appearance-recipe and adjoining-room implementations are scheduled for replacement in Packet 3B by unique predefined characters and one company-wide Studio. Browser-first; local execution service; macOS first; Codex first.
 
 - [Product specification](MILESTONES.md): confirmed behavior and visual quality requirements.
 - [Execution guide](docs/execution/README.md): how to complete a bounded milestone and hand off to another session.

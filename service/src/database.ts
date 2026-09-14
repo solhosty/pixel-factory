@@ -1,13 +1,14 @@
 import { capacityPolicy, localMeasurement, type Measurement } from './capacity.js';
 import { DatabaseSync } from 'node:sqlite';
 import { redactCodexText } from './redaction.js';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import { execFileSync } from 'node:child_process';
 import { ServiceError } from './types.js';
 
 export type SqlValue = string | number | null;
-export interface ProjectRow { project_id: string; name: string; status: 'active' | 'archived'; created_at: string; archived_at: string | null; }
+export interface ProjectRow { project_id: string; name: string; status: 'active' | 'archived'; execution_state: 'active' | 'paused'; pause_reason: string | null; created_at: string; archived_at: string | null; }
 export interface FolderRow { folder_id: string; project_id: string; canonical_path: string; display_path: string; availability: 'available' | 'unavailable'; unavailable_reason: string | null; created_at: string; updated_at: string; }
 
 const migrations = [
@@ -74,10 +75,84 @@ const migrations = [
  CREATE TABLE capacity_slots (attempt_id TEXT PRIMARY KEY REFERENCES attempts(attempt_id), host_id TEXT NOT NULL REFERENCES execution_hosts(host_id), environment_id TEXT NOT NULL REFERENCES execution_environments(environment_id), state TEXT NOT NULL CHECK(state IN ('reserved','active','released')), owner_pid INTEGER);
  CREATE TABLE capacity_waits (task_id TEXT PRIMARY KEY REFERENCES tasks(task_id), reason TEXT NOT NULL, checked_at TEXT NOT NULL);
  ` }
+, { id: '007_recovery_v1', classification: 'forward-only', sql: `
+ ALTER TABLE projects ADD COLUMN execution_state TEXT NOT NULL DEFAULT 'active' CHECK(execution_state IN ('active','paused'));
+ ALTER TABLE projects ADD COLUMN pause_reason TEXT;
+ ALTER TABLE attempts ADD COLUMN workspace_fingerprint TEXT;
+ ALTER TABLE worker_leases ADD COLUMN owner_token TEXT;
+ CREATE TABLE continuation_records (
+   continuation_id TEXT PRIMARY KEY,
+   session_id TEXT NOT NULL REFERENCES sessions(session_id),
+   source_attempt_id TEXT NOT NULL UNIQUE REFERENCES attempts(attempt_id),
+   reason TEXT NOT NULL,
+   state TEXT NOT NULL CHECK(state IN ('eligible','blocked','resumed','cancelled')),
+   provider_thread_id TEXT,
+   workspace_set_json TEXT NOT NULL,
+   workspace_fingerprint TEXT NOT NULL,
+   summary TEXT NOT NULL,
+   created_at TEXT NOT NULL,
+   resumed_attempt_id TEXT REFERENCES attempts(attempt_id),
+   reviewed_at TEXT
+ );
+ CREATE INDEX continuation_state_idx ON continuation_records(state, created_at);
+ CREATE TABLE office_runtime (
+   runtime_id TEXT PRIMARY KEY,
+   state TEXT NOT NULL CHECK(state IN ('open','closing','closed')),
+   last_client_at TEXT,
+   updated_at TEXT NOT NULL
+ );
+ INSERT INTO office_runtime VALUES ('local-office','closed',NULL,strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+ CREATE TABLE office_clients (client_id TEXT PRIMARY KEY, connected_at TEXT NOT NULL, heartbeat_at TEXT NOT NULL);
+ ` }
+, { id: '008_decision_meetings_v1', classification: 'forward-only', sql: `
+ CREATE TABLE decision_meetings (
+   decision_id TEXT PRIMARY KEY,
+   project_id TEXT NOT NULL REFERENCES projects(project_id),
+   employee_id TEXT REFERENCES employees(employee_id),
+   kind TEXT NOT NULL CHECK(kind IN ('ui','technical')),
+   title TEXT NOT NULL,
+   status TEXT NOT NULL CHECK(status IN ('pending','approved')),
+   current_version INTEGER NOT NULL,
+   created_at TEXT NOT NULL,
+   updated_at TEXT NOT NULL
+ );
+ CREATE TABLE decision_versions (
+   decision_id TEXT NOT NULL REFERENCES decision_meetings(decision_id),
+   version INTEGER NOT NULL,
+   recommendation TEXT NOT NULL,
+   options_json TEXT NOT NULL,
+   feedback TEXT,
+   affected_task_ids_json TEXT NOT NULL,
+   gated_task_ids_json TEXT NOT NULL,
+   status TEXT NOT NULL CHECK(status IN ('current','approved','superseded')),
+   proposed_at TEXT NOT NULL,
+   approved_at TEXT,
+   approved_by TEXT,
+   PRIMARY KEY(decision_id, version)
+ );
+ CREATE INDEX decision_meetings_project_idx ON decision_meetings(project_id, status, updated_at DESC);
+ ALTER TABLE inbox_requests ADD COLUMN decision_id TEXT REFERENCES decision_meetings(decision_id);
+ ALTER TABLE inbox_requests ADD COLUMN decision_version INTEGER;
+ ` }
 ] as const;
 
 const now = () => new Date().toISOString();
 const id = (kind: string) => `${kind}_${randomUUID()}`;
+const fingerprintWorkspace = (roots: string[]) => {
+  const hash = createHash('sha256');
+  const walk = (root: string, relative = '') => {
+    const absolute = relative ? `${root}/${relative}` : root;
+    let entries: string[];
+    try { entries = readdirSync(absolute).sort(); } catch { hash.update(`missing:${root}:${relative}\n`); return; }
+    for (const name of entries) {
+      if (name === 'node_modules' || name === '.svelte-kit' || name === 'build') continue;
+      const child = relative ? `${relative}/${name}` : name;
+      try { const stat = statSync(`${root}/${child}`); hash.update(`${root}:${child}:${stat.isDirectory() ? 'd' : 'f'}:${stat.size}:${Math.trunc(stat.mtimeMs)}\n`); if (stat.isDirectory()) walk(root, child); } catch { hash.update(`unreadable:${root}:${child}\n`); }
+    }
+  };
+  for (const root of [...roots].sort()) walk(root);
+  return hash.digest('hex');
+};
 const recipeFor = (employeeId: string) => JSON.stringify({
   body: 'base-01', skin: ['umber-02', 'sienna-01', 'golden-01'][employeeId.charCodeAt(4) % 3],
   hair: ['short-auburn-03', 'curl-dark-01', 'crop-ink-01'][employeeId.charCodeAt(8) % 3],
@@ -106,7 +181,7 @@ export class PixelDatabase {
     if (!name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Project name is required');
     const project_id = id('prj'), at = now();
     this.db.exec('BEGIN IMMEDIATE');
-    try { this.db.prepare('INSERT INTO projects VALUES (?, ?, ?, ?, ?)').run(project_id, name.trim(), 'active', at, null); this.db.prepare('INSERT INTO project_delivery_settings VALUES (?, ?, ?, ?, ?)').run(project_id, null, 'review', '', at); this.db.exec('COMMIT'); }
+    try { this.db.prepare('INSERT INTO projects (project_id, name, status, created_at, archived_at) VALUES (?, ?, ?, ?, ?)').run(project_id, name.trim(), 'active', at, null); this.db.prepare('INSERT INTO project_delivery_settings VALUES (?, ?, ?, ?, ?)').run(project_id, null, 'review', '', at); this.db.exec('COMMIT'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getProject(project_id)!;
   }
@@ -177,7 +252,7 @@ export class PixelDatabase {
     const attempts = this.db.prepare(`SELECT attempt_id FROM worker_leases WHERE state IN ('active','stopping')`).all() as Array<{ attempt_id: string }>;
     let released = 0;
     for (const attempt of attempts) {
-      try { this.reconcileCapacity(attempt.attempt_id); this.releaseExecution(attempt.attempt_id, reason, 'lost'); released++; }
+      try { this.reconcileCapacity(attempt.attempt_id); this.createContinuation(attempt.attempt_id, reason); this.releaseExecution(attempt.attempt_id, reason, 'lost'); released++; }
       catch (error) { if (!(error instanceof ServiceError) || error.code !== 'OWNER_STILL_ALIVE') throw error; }
     }
     for (const slot of this.db.prepare(`SELECT c.attempt_id FROM capacity_slots c JOIN worker_leases l USING(attempt_id) WHERE c.state != 'released' AND l.state NOT IN ('active','stopping')`).all() as Array<{ attempt_id: string }>) {
@@ -185,13 +260,48 @@ export class PixelDatabase {
     }
     return released;
   }
+  workspaceFingerprint(workspaces: string[]) { return fingerprintWorkspace(workspaces); }
+  officeState() { return this.db.prepare("SELECT * FROM office_runtime WHERE runtime_id = 'local-office'").get() as Record<string, unknown>; }
+  setOfficeState(state: 'open' | 'closing' | 'closed') { this.db.prepare("UPDATE office_runtime SET state = ?, updated_at = ? WHERE runtime_id = 'local-office'").run(state, now()); return this.officeState(); }
+  touchClient() { const at = now(); this.db.prepare("UPDATE office_runtime SET state = 'open', last_client_at = ?, updated_at = ? WHERE runtime_id = 'local-office'").run(at, at); return this.officeState(); }
+  heartbeatClient(clientId: string) { if (!clientId) throw new ServiceError('VALIDATION_ERROR', 'Client id required'); const at = now(); this.db.prepare('INSERT INTO office_clients VALUES (?, ?, ?) ON CONFLICT(client_id) DO UPDATE SET heartbeat_at = excluded.heartbeat_at').run(clientId, at, at); this.touchClient(); return this.clientCount(); }
+  disconnectClient(clientId: string) { this.db.prepare('DELETE FROM office_clients WHERE client_id = ?').run(clientId); return this.clientCount(); }
+  expireClients(cutoffIso: string) { this.db.prepare('DELETE FROM office_clients WHERE heartbeat_at < ?').run(cutoffIso); return this.clientCount(); }
+  clientCount() { return Number((this.db.prepare('SELECT COUNT(*) AS count FROM office_clients').get() as { count: number }).count); }
+  continuations(state?: string) { return this.db.prepare(`SELECT c.*, s.task_id, s.employee_id, t.project_id FROM continuation_records c JOIN sessions s USING(session_id) JOIN tasks t USING(task_id) ${state ? 'WHERE c.state = ?' : ''} ORDER BY c.created_at`).all(...(state ? [state] : [])) as Record<string, any>[]; }
+  createContinuation(attemptId: string, reason: string, desiredState: 'eligible' | 'blocked' = 'eligible') {
+    const detail = this.executionDetail(attemptId), workspace = detail.workspace_set as string[];
+    const existing = this.db.prepare('SELECT * FROM continuation_records WHERE source_attempt_id = ?').get(attemptId) as Record<string, unknown> | undefined;
+    if (existing) return existing;
+    const continuationId = id('cont'), fingerprint = String(detail.workspace_fingerprint || this.workspaceFingerprint(workspace));
+    this.db.prepare('UPDATE attempts SET workspace_fingerprint = ? WHERE attempt_id = ?').run(fingerprint, attemptId);
+    this.db.prepare('INSERT INTO continuation_records VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL)').run(continuationId, detail.session_id, attemptId, reason, desiredState, detail.provider_thread_id || null, JSON.stringify(workspace), fingerprint, `Continue ${detail.task_title} after ${reason}.`, now());
+    return this.db.prepare('SELECT * FROM continuation_records WHERE continuation_id = ?').get(continuationId);
+  }
+  reviewContinuation(continuationId: string) {
+    const row = this.db.prepare('SELECT * FROM continuation_records WHERE continuation_id = ?').get(continuationId) as Record<string, any> | undefined;
+    if (!row) throw new ServiceError('NOT_FOUND', 'Continuation not found', {}, 404);
+    const current = this.workspaceFingerprint(JSON.parse(String(row.workspace_set_json)));
+    if (current !== row.workspace_fingerprint) this.db.prepare("UPDATE continuation_records SET state = 'blocked', reason = 'workspace_changed', reviewed_at = ? WHERE continuation_id = ?").run(now(), continuationId);
+    return { ...(this.db.prepare('SELECT * FROM continuation_records WHERE continuation_id = ?').get(continuationId) as object), current_fingerprint: current, fingerprint_matches: current === row.workspace_fingerprint };
+  }
+  cancelContinuationsFor(scope: { task_id?: string; employee_id?: string; project_id?: string }) {
+    const clauses: string[] = [], values: string[] = [];
+    if (scope.task_id) { clauses.push('s.task_id = ?'); values.push(scope.task_id); }
+    if (scope.employee_id) { clauses.push('s.employee_id = ?'); values.push(scope.employee_id); }
+    if (scope.project_id) { clauses.push('t.project_id = ?'); values.push(scope.project_id); }
+    if (!clauses.length) return;
+    this.db.prepare(`UPDATE continuation_records SET state = 'cancelled', reason = 'manual_stop' WHERE state IN ('eligible','blocked') AND session_id IN (SELECT s.session_id FROM sessions s JOIN tasks t USING(task_id) WHERE ${clauses.join(' AND ')})`).run(...values);
+  }
+  pauseProject(projectId: string, paused: boolean) { if (!this.getProject(projectId)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); this.db.prepare('UPDATE projects SET execution_state = ?, pause_reason = ? WHERE project_id = ?').run(paused ? 'paused' : 'active', paused ? 'manual_pause' : null, projectId); if (paused) this.cancelContinuationsFor({ project_id: projectId }); return this.getProject(projectId); }
   executionDetail(attemptId: string): Record<string, any> {
-    const attempt = this.db.prepare(`SELECT a.*, s.task_id, s.employee_id, s.purpose, s.continuation_state, t.title AS task_title, e.name AS employee_name, l.lease_id, l.state AS lease_state, l.stop_reason FROM attempts a JOIN sessions s ON s.session_id = a.session_id JOIN tasks t ON t.task_id = s.task_id JOIN employees e ON e.employee_id = s.employee_id LEFT JOIN worker_leases l ON l.attempt_id = a.attempt_id WHERE a.attempt_id = ?`).get(attemptId) as Record<string, unknown> | undefined;
+    const attempt = this.db.prepare(`SELECT a.*, s.task_id, s.employee_id, s.purpose, s.continuation_state, t.project_id, t.title AS task_title, e.name AS employee_name, l.lease_id, l.state AS lease_state, l.stop_reason FROM attempts a JOIN sessions s ON s.session_id = a.session_id JOIN tasks t ON t.task_id = s.task_id JOIN employees e ON e.employee_id = s.employee_id LEFT JOIN worker_leases l ON l.attempt_id = a.attempt_id WHERE a.attempt_id = ?`).get(attemptId) as Record<string, unknown> | undefined;
     if (!attempt) throw new ServiceError('NOT_FOUND', 'Execution not found', {}, 404);
     return { ...attempt, workspace_set: JSON.parse(String(attempt.workspace_set_json)), events: this.db.prepare('SELECT event_id, sequence, at, kind, payload_json, adapter FROM attempt_events WHERE attempt_id = ? ORDER BY sequence').all(attemptId).map((event: Record<string, unknown>) => ({ ...event, payload: JSON.parse(String(event.payload_json)) })), messages: this.db.prepare('SELECT * FROM follow_up_messages WHERE session_id = ? ORDER BY queued_at').all(String(attempt.session_id)) };
   }
   startExecution(input: { task_id: string; employee_id: string; purpose: string; workspace_set: string[] }) {
     const task = this.taskDetail(input.task_id); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
+    const pendingDecision = this.pendingDecisionForTask(input.task_id); if (pendingDecision) throw new ServiceError('DECISION_APPROVAL_REQUIRED', 'Approve the current decision version before dispatching this task.', { decision_id: pendingDecision.decision_id, current_version: pendingDecision.current_version }, 409);
     if (task.status === 'complete' || this.getProject(String(task.project_id))?.status !== 'active') throw new ServiceError('TASK_NOT_EXECUTABLE', 'Reopen the task and project first.', {}, 409);
     if (!task.assignments.some((assignment: { employee_id: string }) => assignment.employee_id === input.employee_id)) throw new ServiceError('EXECUTION_OWNER_REQUIRED', 'Select the employee assigned to this task before launching', {}, 409);
     const env = this.employeeEnvironment(input.employee_id);
@@ -206,14 +316,37 @@ export class PixelDatabase {
         throw new ServiceError(this.activeAttempt() ? 'WORKER_LEASE_CONFLICT' : 'WAITING_FOR_CAPACITY', reason, { capacity }, 409);
       }
       this.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run(session_id, input.task_id, input.employee_id, redactCodexText(input.purpose), 'running', at);
-      this.db.prepare('INSERT INTO attempts VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(attempt_id, session_id, null, null, null, null, JSON.stringify(input.workspace_set), at);
-      this.db.prepare('INSERT INTO worker_leases VALUES (?, ?, ?, ?, ?, ?)').run(lease_id, attempt_id, 'active', at, null, null);
+      this.db.prepare('INSERT INTO attempts (attempt_id, session_id, provider_thread_id, provider_turn_id, provider_item_id, provider_process_id, workspace_set_json, created_at, workspace_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(attempt_id, session_id, null, null, null, null, JSON.stringify(input.workspace_set), at, this.workspaceFingerprint(input.workspace_set));
+      this.db.prepare('INSERT INTO worker_leases (lease_id, attempt_id, state, heartbeat_at, released_at, stop_reason, owner_token) VALUES (?, ?, ?, ?, ?, ?, ?)').run(lease_id, attempt_id, 'active', at, null, null, null);
       this.db.prepare('INSERT INTO capacity_slots VALUES (?, ?, ?, ?, NULL)').run(attempt_id, env.host_id, env.environment_id, 'reserved');
       this.db.prepare('DELETE FROM capacity_waits WHERE task_id = ?').run(input.task_id);
       this.db.exec('COMMIT');
     } catch (error) { if (this.db.isTransaction) this.db.exec('ROLLBACK'); throw error; }
     return this.executionDetail(attempt_id);
   }
+  resumeContinuation(continuationId: string): Record<string, any> {
+    const reviewed = this.reviewContinuation(continuationId) as Record<string, any>;
+    if (reviewed.state !== 'eligible') throw new ServiceError('RECOVERY_REVIEW_REQUIRED', 'This continuation is blocked and needs review.', { reason: reviewed.reason }, 409);
+    const source = this.executionDetail(String(reviewed.source_attempt_id));
+    const project = this.getProject(String(source.project_id));
+    if (project?.execution_state === 'paused' || project?.status !== 'active') throw new ServiceError('PROJECT_PAUSED', 'Resume the project before continuing.', {}, 409);
+    if (this.listInbox('pending').some((item: any) => item.task_id === reviewed.task_id)) throw new ServiceError('ATTENTION_REQUIRED', 'A pending request blocks automatic resume.', {}, 409);
+    const env = this.employeeEnvironment(String(reviewed.employee_id)), workspace = JSON.parse(String(reviewed.workspace_set_json)) as string[];
+    const at = now(), attemptId = id('att'), leaseId = id('lease');
+    this.db.exec('BEGIN IMMEDIATE');
+    try {
+      const capacity = this.hostCapacity(String(env.host_id));
+      if (capacity.occupied >= capacity.effective_limit || this.activeAttempt()) throw new ServiceError('WAITING_FOR_CAPACITY', 'Waiting for capacity before automatic resume.', { capacity }, 409);
+      this.db.prepare('INSERT INTO attempts (attempt_id, session_id, provider_thread_id, provider_turn_id, provider_item_id, provider_process_id, workspace_set_json, created_at, workspace_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(attemptId, reviewed.session_id, reviewed.provider_thread_id || null, null, null, null, JSON.stringify(workspace), at, reviewed.workspace_fingerprint);
+      this.db.prepare('INSERT INTO worker_leases (lease_id, attempt_id, state, heartbeat_at, released_at, stop_reason, owner_token) VALUES (?, ?, ?, ?, ?, ?, ?)').run(leaseId, attemptId, 'active', at, null, null, null);
+      this.db.prepare('INSERT INTO capacity_slots VALUES (?, ?, ?, ?, NULL)').run(attemptId, env.host_id, env.environment_id, 'reserved');
+      this.db.prepare("UPDATE sessions SET continuation_state = 'running' WHERE session_id = ?").run(reviewed.session_id);
+      this.db.exec('COMMIT');
+    } catch (error) { if (this.db.isTransaction) this.db.exec('ROLLBACK'); throw error; }
+    const started = this.executionDetail(attemptId);
+    return { ...started, resume_thread_id: reviewed.provider_thread_id || null };
+  }
+  markContinuationResumed(continuationId: string, attemptId: string) { this.db.prepare("UPDATE continuation_records SET state = 'resumed', resumed_attempt_id = ?, reviewed_at = ? WHERE continuation_id = ? AND state = 'eligible'").run(attemptId, now(), continuationId); }
   measureHost(hostId = 'local', sample: Measurement | null = localMeasurement()) { this.db.prepare('UPDATE execution_hosts SET measurement_json = ? WHERE host_id = ?').run(sample ? JSON.stringify(sample) : null, hostId); }
   hostCapacity(hostId: string): any {
     const host = this.db.prepare('SELECT * FROM execution_hosts WHERE host_id = ?').get(hostId) as any;
@@ -227,10 +360,18 @@ export class PixelDatabase {
   createRemoteEnvironment(name: string) { if (!name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Environment name required'); const key = id('coder'); this.db.prepare('INSERT INTO execution_hosts VALUES (?, NULL, NULL)').run(key); this.db.prepare('INSERT INTO execution_environments VALUES (?, ?, ?, ?, ?, 0)').run(key, key, name.trim(), 'coder', 'not connected'); return this.environments(); }
   bindEnvironment(employeeId: string, environmentId: string) { if (!this.getEmployee(employeeId) || !this.environments().some(e => e.environment_id === environmentId)) throw new ServiceError('NOT_FOUND', 'Coworker or environment not found', {}, 404); if (this.db.prepare("SELECT 1 FROM capacity_slots c JOIN attempts a USING(attempt_id) JOIN sessions s USING(session_id) WHERE s.employee_id = ? AND c.state != 'released'").get(employeeId)) throw new ServiceError('WORKER_LEASE_CONFLICT', 'Stop and reconcile this coworker before changing location.', {}, 409); this.db.prepare('INSERT OR REPLACE INTO employee_environments VALUES (?, ?)').run(employeeId, environmentId); return this.employeeDetail(employeeId); }
   setCapacityCeiling(hostId: string, value: unknown) { if (value !== null && (!Number.isInteger(value) || Number(value) < 0)) throw new ServiceError('VALIDATION_ERROR', 'Ceiling must be a nonnegative integer or null'); this.hostCapacity(hostId); this.db.prepare('UPDATE execution_hosts SET user_ceiling = ? WHERE host_id = ?').run(value as number | null, hostId); return this.hostCapacity(hostId); }
-  activateCapacity(attemptId: string, pid: number) { this.db.prepare("UPDATE capacity_slots SET state = 'active', owner_pid = ? WHERE attempt_id = ? AND state = 'reserved'").run(pid, attemptId); }
+  activateCapacity(attemptId: string, pid: number, ownerToken?: string) { this.db.prepare("UPDATE capacity_slots SET state = 'active', owner_pid = ? WHERE attempt_id = ? AND state = 'reserved'").run(pid, attemptId); this.db.prepare('UPDATE worker_leases SET owner_token = ? WHERE attempt_id = ?').run(ownerToken || null, attemptId); }
   reconcileCapacity(attemptId: string) {
     const slot = this.db.prepare('SELECT * FROM capacity_slots WHERE attempt_id = ?').get(attemptId) as any;
-    if (slot?.owner_pid) { try { process.kill(slot.owner_pid, 0); throw new ServiceError('OWNER_STILL_ALIVE', 'Capacity remains occupied until the owned process exits.', {}, 409); } catch (e: any) { if (e.code !== 'ESRCH') throw e; } }
+    if (slot?.owner_pid) {
+      try {
+        process.kill(slot.owner_pid, 0);
+        let command = '';
+        try { command = execFileSync('/bin/ps', ['-p', String(slot.owner_pid), '-o', 'command='], { encoding: 'utf8', timeout: 1000 }).trim(); } catch {}
+        if (/\bcodex\b.*\bapp-server\b/.test(command)) throw new ServiceError('OWNER_STILL_ALIVE', 'Capacity remains occupied until the verified owned app-server exits.', { pid: slot.owner_pid }, 409);
+        this.appendEvent(attemptId, 'attempt.pid_reuse_ignored', { pid: slot.owner_pid, observed_command: command.slice(0, 200) });
+      } catch (e: any) { if (e instanceof ServiceError) throw e; if (e.code !== 'ESRCH') throw e; }
+    }
     this.db.prepare("UPDATE capacity_slots SET state = 'released' WHERE attempt_id = ?").run(attemptId);
   }
   taskBoard(): any[] { return this.db.prepare('SELECT task_id FROM tasks ORDER BY created_at DESC').all().map((row: any) => {
@@ -242,7 +383,8 @@ export class PixelDatabase {
     const wait = this.db.prepare('SELECT * FROM capacity_waits WHERE task_id = ?').get(task.task_id) as any;
     const request = this.listInbox('pending').find((r: any) => r.task_id === task.task_id) as any;
     const working = attempt && ['active','stopping'].includes(String(attempt.lease_state));
-    const reason = task.status === 'complete' ? '' : request?.blocks || (working ? '' : !this.approvedPlanForTask(task.task_id) ? 'Current plan approval required.' : !owner ? 'Assign a coworker.' : env?.kind === 'coder' ? 'Coder not connected; execution arrives in milestone 6.' : wait?.reason || '');
+    const decision = this.pendingDecisionForTask(task.task_id);
+    const reason = task.status === 'complete' ? '' : decision ? `Decision approval required: ${decision.title} v${decision.current_version}.` : request?.blocks || (working ? '' : !this.approvedPlanForTask(task.task_id) ? 'Current plan approval required.' : !owner ? 'Assign a coworker.' : env?.kind === 'coder' ? 'Coder not connected; execution arrives in milestone 6.' : wait?.reason || '');
     return { ...task, project_name: this.getProject(task.project_id)?.name, employee_id: owner?.employee_id || null, employee_name: owner ? this.getEmployee(owner.employee_id)?.name : null, environment: env, attempt, blocking_reason: reason, working_state: task.status === 'complete' ? 'complete' : working ? 'working' : reason ? (wait && !request && this.approvedPlanForTask(task.task_id) && env?.kind === 'local' ? 'waiting for capacity' : 'blocked') : 'planned' };
   }); }
   setProviderIdentity(attemptId: string, values: { threadId?: string | null; turnId?: string | null; itemId?: string | null; processId?: string | null }) { this.db.prepare('UPDATE attempts SET provider_thread_id = COALESCE(?, provider_thread_id), provider_turn_id = COALESCE(?, provider_turn_id), provider_item_id = COALESCE(?, provider_item_id), provider_process_id = COALESCE(?, provider_process_id) WHERE attempt_id = ?').run(values.threadId ?? null, values.turnId ?? null, values.itemId ?? null, values.processId ?? null, attemptId); }
@@ -252,9 +394,60 @@ export class PixelDatabase {
   releaseExecution(attemptId: string, reason: string, state: 'released' | 'lost' = 'released') { const at = now(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('UPDATE worker_leases SET state = ?, released_at = ?, stop_reason = ?, heartbeat_at = ? WHERE attempt_id = ?').run(state, at, reason, at, attemptId); this.db.prepare(`UPDATE sessions SET continuation_state = ? WHERE session_id = (SELECT session_id FROM attempts WHERE attempt_id = ?)` ).run(state === 'released' ? 'stopped' : 'lost', attemptId); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } }
   preferences() { return this.db.prepare(`SELECT * FROM office_preferences WHERE preference_id = 'local-user'`).get(); }
   updatePreferences(values: { map_treatment?: 'warm' | 'cool' | 'editorial'; reduced_motion?: boolean }) { const old = this.preferences() as { map_treatment: 'warm' | 'cool' | 'editorial'; reduced_motion: number }; const treatment = values.map_treatment ?? old.map_treatment; if (!['warm', 'cool', 'editorial'].includes(treatment)) throw new ServiceError('VALIDATION_ERROR', 'Unknown map treatment'); this.db.prepare(`UPDATE office_preferences SET map_treatment = ?, reduced_motion = ?, updated_at = ? WHERE preference_id = 'local-user'`).run(treatment, values.reduced_motion === undefined ? old.reduced_motion : Number(values.reduced_motion), now()); return this.preferences(); }
+  decisionDetail(decisionId: string): Record<string, any> | undefined {
+    const meeting = this.db.prepare(`SELECT d.*, p.name AS project_name, e.name AS employee_name FROM decision_meetings d JOIN projects p USING(project_id) LEFT JOIN employees e USING(employee_id) WHERE decision_id = ?`).get(decisionId) as Record<string, unknown> | undefined;
+    if (!meeting) return undefined;
+    const versions: Record<string, any>[] = (this.db.prepare('SELECT * FROM decision_versions WHERE decision_id = ? ORDER BY version DESC').all(decisionId) as Record<string, unknown>[]).map((version) => ({ ...version, options: JSON.parse(String(version.options_json)), affected_task_ids: JSON.parse(String(version.affected_task_ids_json)), gated_task_ids: JSON.parse(String(version.gated_task_ids_json)) }));
+    return { ...meeting, versions, current: versions.find((version) => Number(version.version) === Number(meeting.current_version)) };
+  }
+  listDecisions(projectId?: string) { return (this.db.prepare(`SELECT decision_id FROM decision_meetings ${projectId ? 'WHERE project_id = ?' : ''} ORDER BY CASE status WHEN 'pending' THEN 0 ELSE 1 END, updated_at DESC`).all(...(projectId ? [projectId] : [])) as Array<{ decision_id: string }>).map(({ decision_id }) => this.decisionDetail(decision_id)!); }
+  private validateDecisionTasks(projectId: string, values: unknown) { const ids = [...new Set(Array.isArray(values) ? values.map(String) : [])]; for (const taskId of ids) { const task = this.taskDetail(taskId); if (!task || task.project_id !== projectId) throw new ServiceError('INVALID_DECISION_SCOPE', 'Every affected or gated task must belong to the meeting project.', { task_id: taskId }, 409); } return ids; }
+  createDecision(input: { project_id: string; employee_id?: string; kind: 'ui' | 'technical'; title: string; recommendation: string; options: unknown; affected_task_ids?: unknown; gated_task_ids?: unknown }) {
+    if (!this.getProject(input.project_id)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404);
+    if (!['ui','technical'].includes(input.kind) || !input.title?.trim() || !input.recommendation?.trim() || !Array.isArray(input.options) || input.options.length < 2) throw new ServiceError('VALIDATION_ERROR', 'A decision needs a type, title, recommendation, and at least two options.');
+    if (input.employee_id && !this.getEmployee(input.employee_id)) throw new ServiceError('NOT_FOUND', 'Employee not found', {}, 404);
+    const affected = this.validateDecisionTasks(input.project_id, input.affected_task_ids), gated = this.validateDecisionTasks(input.project_id, input.gated_task_ids), decisionId = id('dec'), at = now();
+    this.db.exec('BEGIN IMMEDIATE'); try {
+      this.db.prepare('INSERT INTO decision_meetings VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)').run(decisionId, input.project_id, input.employee_id || null, input.kind, input.title.trim(), 'pending', at, at);
+      this.db.prepare('INSERT INTO decision_versions VALUES (?, 1, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL)').run(decisionId, redactCodexText(input.recommendation.trim()), JSON.stringify(input.options), JSON.stringify(affected), JSON.stringify(gated), 'current', at);
+      const requestId = id('req'); this.db.prepare('INSERT INTO inbox_requests (request_id,project_id,employee_id,task_id,kind,summary,detail,blocks,source,status,created_at,resolved_at,decision_id,decision_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(requestId,input.project_id,input.employee_id||null,gated[0]||affected[0]||null,'decision',input.title.trim(),`Review ${input.kind} decision version 1.`,gated.length?`Approval gates ${gated.length} linked task(s).`:'No task is gated; linked work may continue.','codex','pending',at,null,decisionId,1);
+      this.db.exec('COMMIT');
+    } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    return this.decisionDetail(decisionId)!;
+  }
+  reviseDecision(decisionId: string, input: { expected_version: number; recommendation: string; options: unknown; feedback: string; affected_task_ids?: unknown; gated_task_ids?: unknown }) {
+    const meeting = this.decisionDetail(decisionId); if (!meeting) throw new ServiceError('NOT_FOUND', 'Decision meeting not found', {}, 404);
+    if (Number(input.expected_version) !== Number(meeting.current_version)) throw new ServiceError('STALE_DECISION_VERSION', 'The meeting changed; reload before revising.', { current_version: meeting.current_version }, 409);
+    if (!input.feedback?.trim() || !input.recommendation?.trim() || !Array.isArray(input.options) || input.options.length < 2) throw new ServiceError('VALIDATION_ERROR', 'A revision needs feedback, recommendation, and at least two options.');
+    const affected=this.validateDecisionTasks(meeting.project_id,input.affected_task_ids), gated=this.validateDecisionTasks(meeting.project_id,input.gated_task_ids), version=Number(meeting.current_version)+1, at=now();
+    this.db.exec('BEGIN IMMEDIATE'); try {
+      this.db.prepare("UPDATE decision_versions SET status='superseded' WHERE decision_id=? AND status IN ('current','approved')").run(decisionId);
+      this.db.prepare("UPDATE decision_meetings SET status='pending',current_version=?,updated_at=? WHERE decision_id=?").run(version,at,decisionId);
+      this.db.prepare('INSERT INTO decision_versions VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(decisionId,version,redactCodexText(input.recommendation.trim()),JSON.stringify(input.options),redactCodexText(input.feedback.trim()),JSON.stringify(affected),JSON.stringify(gated),'current',at,null,null);
+      this.db.prepare("UPDATE inbox_requests SET status='resolved',resolved_at=? WHERE decision_id=? AND status='pending'").run(at,decisionId);
+      this.db.prepare('INSERT INTO inbox_requests (request_id,project_id,employee_id,task_id,kind,summary,detail,blocks,source,status,created_at,resolved_at,decision_id,decision_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id('req'),meeting.project_id,meeting.employee_id||null,gated[0]||affected[0]||null,'decision',meeting.title,`Review revised ${meeting.kind} decision version ${version}.`,gated.length?`Approval gates ${gated.length} linked task(s).`:'No task is gated; linked work may continue.','codex','pending',at,null,decisionId,version);
+      this.db.exec('COMMIT');
+    } catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.decisionDetail(decisionId)!;
+  }
+  approveDecision(decisionId: string, input: { version: number; approved_by?: string }) {
+    const meeting=this.decisionDetail(decisionId); if(!meeting) throw new ServiceError('NOT_FOUND','Decision meeting not found',{},404);
+    if(meeting.status!=='pending'||Number(input.version)!==Number(meeting.current_version)) throw new ServiceError('STALE_DECISION_VERSION','Only the current pending version can be approved.',{current_version:meeting.current_version,status:meeting.status},409);
+    const current=meeting.current, at=now(), approver=input.approved_by?.trim()||'local user';
+    this.db.exec('BEGIN IMMEDIATE'); try {
+      this.db.prepare("UPDATE decision_versions SET status='approved',approved_at=?,approved_by=? WHERE decision_id=? AND version=? AND status='current'").run(at,approver,decisionId,input.version);
+      this.db.prepare("UPDATE decision_meetings SET status='approved',updated_at=? WHERE decision_id=?").run(at,decisionId);
+      this.db.prepare("UPDATE inbox_requests SET status='resolved',resolved_at=?,response_text=? WHERE decision_id=? AND status='pending'").run(at,`Approved version ${input.version} by ${approver}.`,decisionId);
+      this.db.prepare("UPDATE guidance_records SET state='corrected',retired_at=? WHERE project_id=? AND state='active' AND provenance LIKE ?").run(at,meeting.project_id,`decision:${decisionId}:v%`);
+      const guidanceId=id('guide'), content=`${meeting.title}: ${current.recommendation}`; this.db.prepare('INSERT INTO guidance_records (guidance_id,project_id,scope,task_id,content,provenance,state,replaces_guidance_id,created_at,retired_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(guidanceId,meeting.project_id,'project',null,redactCodexText(content),`decision:${decisionId}:v${input.version}`,'active',null,at,null);
+      this.db.exec('COMMIT');
+    } catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.decisionDetail(decisionId)!;
+  }
+  pendingDecisionForTask(taskId: string) { return this.listDecisions().find((meeting:any)=>meeting.status==='pending'&&meeting.current.gated_task_ids.includes(taskId)); }
   listInbox(status?: 'pending' | 'resolved'): Record<string, any>[] { return this.db.prepare(`SELECT r.*, p.name AS project_name, e.name AS employee_name, t.title AS task_title, m.state AS message_state FROM inbox_requests r JOIN projects p ON p.project_id = r.project_id LEFT JOIN employees e ON e.employee_id = r.employee_id LEFT JOIN tasks t ON t.task_id = r.task_id LEFT JOIN follow_up_messages m ON m.message_id = r.message_id ${status ? 'WHERE r.status = ?' : ''} ORDER BY CASE r.status WHEN 'pending' THEN 0 ELSE 1 END, r.created_at DESC`).all(...(status ? [status] : [])); }
   createSimulatedRequest(input: { project_id: string; employee_id?: string; task_id?: string; kind?: string; summary?: string; detail?: string; blocks?: string }) { if (!this.getProject(input.project_id)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); const request_id = id('req'), at = now(); const kind = input.kind || 'clarification'; const summary = input.summary?.trim() || 'Confirm the next room priority'; const detail = input.detail?.trim() || 'This is a labeled simulated request for the Packet 1B inbox shell. It shows the reading surface for a longer technical question without sending a message, starting a worker, or approving anything. A later execution packet must replace this entry with a persisted adapter event before the office can claim that work is actually blocked or awaiting a user response.'; const blocks = input.blocks?.trim() || 'No execution is running; this only demonstrates the inbox route and its readable request-details boundary.'; this.db.prepare('INSERT INTO inbox_requests (request_id, project_id, employee_id, task_id, kind, summary, detail, blocks, source, status, created_at, resolved_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(request_id, input.project_id, input.employee_id || null, input.task_id || null, kind, summary, detail, blocks, 'simulated', 'pending', at, null); return this.listInbox().find((request: any) => request.request_id === request_id); }
-  resolveRequest(requestId: string) { const existing = this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId); if (!existing) throw new ServiceError('NOT_FOUND', 'Inbox request not found', {}, 404); this.db.prepare(`UPDATE inbox_requests SET status = 'resolved', resolved_at = ? WHERE request_id = ?`).run(now(), requestId); return this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId); }
+  resolveRequest(requestId: string) { const existing = this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId) as Record<string,unknown>|undefined; if (!existing) throw new ServiceError('NOT_FOUND', 'Inbox request not found', {}, 404); if(existing.decision_id) throw new ServiceError('DECISION_APPROVAL_REQUIRED','Decision meetings resolve only by approving the current version.',{decision_id:existing.decision_id},409); this.db.prepare(`UPDATE inbox_requests SET status = 'resolved', resolved_at = ? WHERE request_id = ?`).run(now(), requestId); return this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId); }
   createPlan(input: { project_id: string; task_id: string; summary: string; milestones?: unknown; acceptance?: unknown; dependencies?: unknown }) {
     const task = this.taskDetail(input.task_id) as { project_id: string } | undefined;
     if (!task || task.project_id !== input.project_id) throw new ServiceError('INVALID_PLAN_TASK', 'A plan must target a task in its project', {}, 409);
@@ -284,5 +477,5 @@ export class PixelDatabase {
     if (seen) return undefined;
     return this.createRealRequest({ project_id: String((this.taskDetail(String(attempt.task_id)) as any).project_id), employee_id: String(attempt.employee_id), task_id: String(attempt.task_id), kind: match[1].toLowerCase(), summary: match[2].trim(), blocks: match[3].trim(), detail, message_id: providerItemId });
   }
-  answerRequest(requestId: string, response: string) { const request = this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId) as Record<string, unknown> | undefined; if (!request || request.status !== 'pending') throw new ServiceError('NOT_FOUND', 'Pending inbox request not found', {}, 404); this.db.prepare(`UPDATE inbox_requests SET status = 'resolved', resolved_at = ?, response_text = ? WHERE request_id = ?`).run(now(), redactCodexText(response.trim()), requestId); return this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId); }
+  answerRequest(requestId: string, response: string) { const request = this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId) as Record<string, unknown> | undefined; if (!request || request.status !== 'pending') throw new ServiceError('NOT_FOUND', 'Pending inbox request not found', {}, 404); if(request.decision_id) throw new ServiceError('DECISION_APPROVAL_REQUIRED','Decision feedback must create a revised version; acknowledgement cannot approve or resolve it.',{decision_id:request.decision_id},409); this.db.prepare(`UPDATE inbox_requests SET status = 'resolved', resolved_at = ?, response_text = ? WHERE request_id = ?`).run(now(), redactCodexText(response.trim()), requestId); return this.db.prepare('SELECT * FROM inbox_requests WHERE request_id = ?').get(requestId); }
 }

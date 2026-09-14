@@ -1,0 +1,18 @@
+{
+  "packet": "2D",
+  "date": "2026-09-13",
+  "deterministic_tests": { "passed": 21, "failed": 0 },
+  "checks": ["npm test", "npm run check:service", "npm run check", "npm run build"],
+  "browser": { "served": true, "office_visible": true, "sidebar_ux_preserved": true, "controls": ["Close office", "Stop all", "Pause project", "Stop employee", "Stop session"] },
+  "grace": { "default_ms": 10000, "acceptance_ms": 3000, "refresh_and_two_tab_fixture": "passed" },
+  "real_recovery": {
+    "source_attempt_id": "att_39b0297c-e6b7-49fb-be23-94be0c8693a3",
+    "resumed_attempt_id": "att_aaebfc90-c3f7-4db9-ba83-abb0f7deedce",
+    "session_id": "ses_b0cc0de0-5a24-4526-b381-755dcb6b498a",
+    "provider_thread_id": "01a09d6d-0fd2-7901-a9d7-2f7b0e73c527",
+    "native_tui_attached": true,
+    "final_stop_reason": "manual_session_stop",
+    "final_capacity": { "active": 0, "reserved": 0, "occupied": 0, "effective_limit": 1 }
+  },
+  "defect_fixed": "Immediate resume could race Codex thread-store writer release. Continuations now become resumed only after attach and transient failures retry without false completion."
+}

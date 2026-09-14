@@ -14,6 +14,9 @@ const dataDir = resolve(process.env.PIXEL_HARNESS_DATA_DIR || '.pixel-harness');
 const db = new PixelDatabase(resolve(dataDir, 'pixel-harness.sqlite'));
 db.reconcileActiveExecutions();
 let execution: CodexExecution | undefined;
+const clientGraceMs = Number(process.env.PIXEL_HARNESS_CLIENT_GRACE_MS || 10_000);
+let closing = false;
+let resumeRetryAt = 0;
 
 function requestId() { return `req_${randomUUID()}`; }
 function json(res: ServerResponse, status: number, value: unknown, origin?: string) { res.writeHead(status, { 'Content-Type': 'application/json; charset=utf-8', ...(origin ? { 'Access-Control-Allow-Origin': origin, Vary: 'Origin' } : {}) }); res.end(JSON.stringify(value)); }
@@ -59,6 +62,24 @@ async function sendFollowUp(payload: Record<string, unknown>) {
   catch (error) { db.markMessage(messageId, 'failed', attemptId); throw error; }
   return db.executionDetail(attemptId);
 }
+async function stopOwned(reason: string, preserveContinuation: boolean) {
+  if (!execution) return null;
+  const attemptId = execution.attemptId;
+  if (preserveContinuation) db.createContinuation(attemptId, reason);
+  else db.cancelContinuationsFor({ task_id: String(db.executionDetail(attemptId).task_id) });
+  await execution.stop(reason); execution = undefined;
+  return db.executionDetail(attemptId);
+}
+async function resumeEligible() {
+  if (execution || Date.now() < resumeRetryAt) return null;
+  const candidate = db.continuations('eligible')[0]; if (!candidate) return null;
+  db.measureHost();
+  const started = db.resumeContinuation(String(candidate.continuation_id));
+  execution = new CodexExecution(db, String(started.attempt_id), dataDir);
+  try { await execution.start(started.workspace_set as string[], String(started.purpose), String(started.resume_thread_id || '')); db.markContinuationResumed(String(candidate.continuation_id), String(started.attempt_id)); resumeRetryAt = 0; }
+  catch (error) { const failure = classifyCodexFailure(error); db.appendEvent(String(started.attempt_id), 'attempt.recovery_failed', { code: failure.code }); db.releaseExecution(String(started.attempt_id), failure.stopReason, 'lost'); execution = undefined; resumeRetryAt = Date.now() + 2_000; throw error; }
+  return db.executionDetail(String(started.attempt_id));
+}
 
 const server = createServer(async (req, res) => {
   const id = requestId();
@@ -72,12 +93,21 @@ const server = createServer(async (req, res) => {
     else if (req.method === 'GET' && /^\/api\/v1\/executions\/[^/]+$/.test(url.pathname)) output = db.executionDetail(url.pathname.split('/')[4]);
     else if (req.method === 'GET' && url.pathname === '/api/v1/board') output = db.taskBoard();
     else if (req.method === 'GET' && url.pathname === '/api/v1/environments') { db.measureHost(); output = db.environments(); }
+    else if (req.method === 'GET' && url.pathname === '/api/v1/office/runtime') output = { ...db.officeState(), clients: db.clientCount(), grace_ms: clientGraceMs, continuations: db.continuations() };
+    else if (req.method === 'POST' && url.pathname === '/api/v1/office/heartbeat') { const count = db.heartbeatClient(String(payload.client_id || '')); if (!execution) await resumeEligible().catch(() => null); output = { ...db.officeState(), clients: count, grace_ms: clientGraceMs }; }
+    else if (req.method === 'POST' && url.pathname === '/api/v1/office/disconnect') output = { clients: db.disconnectClient(String(payload.client_id || '')), grace_ms: clientGraceMs };
+    else if (req.method === 'POST' && url.pathname === '/api/v1/office/close') { db.setOfficeState('closing'); await stopOwned('office_close', true); db.setOfficeState('closed'); output = db.officeState(); }
+    else if (req.method === 'POST' && url.pathname === '/api/v1/office/resume') { db.setOfficeState('open'); output = await resumeEligible(); }
+    else if (req.method === 'POST' && url.pathname === '/api/v1/office/stop') { await stopOwned('manual_office_stop', false); for (const item of db.continuations()) db.cancelContinuationsFor({ project_id: String(item.project_id) }); output = db.officeState(); }
     else if (req.method === 'POST' && url.pathname === '/api/v1/environments') output = db.createRemoteEnvironment(String(payload.name || ''));
     else if (req.method === 'PATCH' && /^\/api\/v1\/hosts\/[^/]+\/capacity$/.test(url.pathname)) output = db.setCapacityCeiling(url.pathname.split('/')[4], payload.ceiling);
     else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+\/environment$/.test(url.pathname)) output = db.bindEnvironment(url.pathname.split('/')[4], String(payload.environment_id || ''));
     else if (req.method === 'POST' && url.pathname === '/api/v1/executions') output = await launchExecution(payload);
     else if (req.method === 'POST' && /^\/api\/v1\/executions\/[^/]+\/messages$/.test(url.pathname)) { output = await sendFollowUp({ ...payload, attempt_id: url.pathname.split('/')[4] }); }
-    else if (req.method === 'POST' && /^\/api\/v1\/executions\/[^/]+\/stop$/.test(url.pathname)) { const attemptId = url.pathname.split('/')[4]; if (!execution || execution.attemptId !== attemptId) throw new ServiceError('TERMINAL_DETACHED', 'The owned execution is not attached to this service.', {}, 409); await execution.stop('user_stop'); execution = undefined; output = db.executionDetail(attemptId); }
+    else if (req.method === 'POST' && /^\/api\/v1\/executions\/[^/]+\/stop$/.test(url.pathname)) { const attemptId = url.pathname.split('/')[4]; if (!execution || execution.attemptId !== attemptId) throw new ServiceError('TERMINAL_DETACHED', 'The owned execution is not attached to this service.', {}, 409); output = await stopOwned('manual_session_stop', false); }
+    else if (req.method === 'POST' && /^\/api\/v1\/staff\/[^/]+\/stop$/.test(url.pathname)) { const employeeId = url.pathname.split('/')[4]; if (execution && String(db.executionDetail(execution.attemptId).employee_id) === employeeId) await stopOwned('manual_employee_stop', false); db.cancelContinuationsFor({ employee_id: employeeId }); output = db.employeeDetail(employeeId); }
+    else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/pause$/.test(url.pathname)) { const projectId = url.pathname.split('/')[4]; if (execution && String(db.executionDetail(execution.attemptId).project_id) === projectId) await stopOwned('manual_project_pause', false); output = db.pauseProject(projectId, true); }
+    else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/resume$/.test(url.pathname)) { output = db.pauseProject(url.pathname.split('/')[4], false); }
     else if (req.method === 'POST' && /^\/api\/v1\/executions\/[^/]+\/terminal-input$/.test(url.pathname)) { const attemptId = url.pathname.split('/')[4]; if (!execution || execution.attemptId !== attemptId) throw new ServiceError('TERMINAL_DETACHED', 'The owned terminal is not attached.', {}, 409); await execution.terminalInput(String(payload.data || '')); output = { accepted: true }; }
     else if (req.method === 'POST' && /^\/api\/v1\/executions\/[^/]+\/resize$/.test(url.pathname)) { const attemptId = url.pathname.split('/')[4]; if (!execution || execution.attemptId !== attemptId) throw new ServiceError('TERMINAL_DETACHED', 'The owned terminal is not attached.', {}, 409); await execution.resize(Number(payload.rows), Number(payload.cols)); output = { accepted: true }; }
     else if (req.method === 'POST' && url.pathname === '/api/v1/projects') output = db.createProject(String(payload.name || ''));
@@ -100,6 +130,10 @@ const server = createServer(async (req, res) => {
     else if (req.method === 'GET' && url.pathname === '/api/v1/office/preferences') output = db.preferences();
     else if (req.method === 'PATCH' && url.pathname === '/api/v1/office/preferences') output = db.updatePreferences(payload as { map_treatment?: 'warm' | 'cool' | 'editorial'; reduced_motion?: boolean });
     else if (req.method === 'GET' && url.pathname === '/api/v1/inbox') output = db.listInbox(url.searchParams.get('status') === 'resolved' ? 'resolved' : url.searchParams.get('status') === 'pending' ? 'pending' : undefined);
+    else if (req.method === 'GET' && url.pathname === '/api/v1/decisions') output = db.listDecisions(url.searchParams.get('project_id') || undefined);
+    else if (req.method === 'POST' && url.pathname === '/api/v1/decisions') output = db.createDecision(payload as any);
+    else if (req.method === 'POST' && /^\/api\/v1\/decisions\/[^/]+\/revise$/.test(url.pathname)) output = db.reviseDecision(url.pathname.split('/')[4], payload as any);
+    else if (req.method === 'POST' && /^\/api\/v1\/decisions\/[^/]+\/approve$/.test(url.pathname)) output = db.approveDecision(url.pathname.split('/')[4], payload as any);
     else if (req.method === 'POST' && url.pathname === '/api/v1/plans') output = db.createPlan(payload as { project_id: string; task_id: string; summary: string; milestones?: unknown; acceptance?: unknown; dependencies?: unknown });
     else if (req.method === 'POST' && /^\/api\/v1\/plans\/[^/]+\/approve$/.test(url.pathname)) output = db.approvePlan(url.pathname.split('/')[4], String(payload.approved_by || 'local user'));
     else if (req.method === 'POST' && url.pathname === '/api/v1/guidance') output = db.addGuidance(payload as { project_id: string; task_id?: string; content: string; provenance: string; replaces_guidance_id?: string });
@@ -124,8 +158,13 @@ const server = createServer(async (req, res) => {
   } catch (error) { const value = error instanceof ServiceError ? error : new ServiceError('INTERNAL_ERROR', 'The local service could not complete this request', {}, 500); json(res, value.status, { error: { code: value.code, message: value.message, details: value.details, request_id: id } }); }
 });
 server.listen(port, host, () => { console.log(`Pixel Harness local service: http://${host}:${port}`); console.log(`Open the UI with this one-launch token (it is not stored): ${uiOrigin}/#token=${token}`); console.log(`Data: ${dataDir}`); });
+const clientSweep = setInterval(() => {
+  const count = db.expireClients(new Date(Date.now() - clientGraceMs).toISOString());
+  if (!count && execution && db.officeState().state === 'open') { db.setOfficeState('closing'); void stopOwned('last_client_disconnect', true).finally(() => db.setOfficeState('closed')); }
+}, Math.max(500, Math.min(2000, clientGraceMs / 2)));
 function closeService() {
-  void execution?.stop('office_close').catch(() => {}).finally(() => { db.close(); server.close(); });
+  if (closing) return; closing = true; clearInterval(clientSweep); db.setOfficeState('closing');
+  void stopOwned('graceful_service_stop', true).catch(() => {}).finally(() => { db.setOfficeState('closed'); server.close(() => db.close()); });
 }
 process.on('SIGINT', closeService);
 process.on('SIGTERM', closeService);

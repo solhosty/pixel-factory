@@ -1,0 +1,40 @@
+{
+  "packet": "3A",
+  "date": "2026-09-13",
+  "checkout": "4e9f082aa2f303fc0452b60fd7755421f1e74510 plus preserved packet 2D and packet 3A working-tree changes",
+  "runtime": {
+    "node": "v26.5.0",
+    "npm": "11.17.0",
+    "codex": "0.154.0",
+    "service": "http://127.0.0.1:4318",
+    "ui": "http://127.0.0.1:5173"
+  },
+  "checks": [
+    {"command": "npm test", "result": "pass", "detail": "24/24 deterministic tests"},
+    {"command": "npm run check:service", "result": "pass"},
+    {"command": "npm run check", "result": "pass", "detail": "0 errors and 0 warnings"},
+    {"command": "npm run build", "result": "pass"},
+    {"command": "git diff --check", "result": "pass"}
+  ],
+  "served_browser": {
+    "result": "pass",
+    "fixture_data_dir": "/private/tmp/pixel-harness-3a-acceptance",
+    "flow": [
+      "Office loaded with the preserved right-sidebar coworker layout and genuine native-terminal dock.",
+      "Presented UI decision version 1 with two visual previews, affected task, and gated task.",
+      "Reload preserved pending version 1 and the task displayed Decision approval required.",
+      "Submitted feedback and version 2; version 1 remained superseded in history.",
+      "Approved exactly version 2; inbox pending count cleared, task returned to its plan gate, and project guidance displayed decision provenance for v2."
+    ],
+    "defect_fixed": "Captured the meeting form element before the async request so successful submission can reset without dereferencing a cleared event currentTarget."
+  },
+  "invariants": [
+    "No timeout or generic inbox answer can resolve a decision meeting.",
+    "Stale version approval returns STALE_DECISION_VERSION.",
+    "Only explicitly gated tasks wait; independent authorized work can start.",
+    "Approved technical decisions become project guidance with decision id and exact version provenance.",
+    "A material revision supersedes the prior version and reopens its task gate.",
+    "Packet 2C sequential capacity and packet 2D recovery tests remain green."
+  ]
+}
+

@@ -6,19 +6,20 @@ Status: `provisional — interaction review pending`
 
 The approved baseline is `0A-A-v1`: a warm, populated top-down coding office with deep navy framing, cream conversation surfaces, walnut furniture, moss accents, and small terracotta notifications. The map treatment may be selected by the user; the application UI stays on the approved A baseline. This is original top-down RPG work, not a reproduction of an existing game's art or interface.
 
-The room benchmark is now **modular, expandable, grid-native office space**, rather than a one-off dollhouse illustration. The user named Gather as the relevant product benchmark for modularity and expansion; use that as a functional/reference constraint only, not as art to copy. A room must be placeable and extendable by tile chunks without bespoke sidewalls, a painted outer frame, or a composition that only works at one viewport.
+The office benchmark is now a **curated, company-wide, grid-native Studio**, rather than project-owned rooms or a one-off dollhouse illustration. The user named Gather as a relevant functional reference for navigation, but later chose composition quality over procedural expansion. The first Studio must support six to eight local workstations as one continuous space without bespoke sidewalls or a painted outer frame. Larger capacity uses a separately composed and approved layout.
 
 ## Production rules
 
 - Logical tile: `16 × 16` source pixels. A room uses a `2 × 2` tile meter; furniture declares its tile footprint and interaction anchor.
-- Map structure: every room is a rectangular tilemap with independent floor, wall-edge, doorway, and prop layers. Walls are ordinary reusable edge/corner/door tiles; never generate a perspective “sidewall” or an enclosing illustrated room border.
-- Expansion: rooms join on a tile boundary through a doorway/transition strip and may extend in any cardinal direction. Art must remain valid when a floor region or wall segment repeats beyond the original room size.
+- Map structure: the Office is a tilemap with independent floor, wall-edge, and prop layers. Walls are ordinary reusable edge/corner tiles; never generate a perspective “sidewall” or an enclosing illustrated room border.
+- Capacity: compose six to eight usable workstations into the first Studio. Empty desks remain intentional. Local employees occupy them; remote employees do not render in the Office. Do not resize, shrink, procedurally append rooms, or rearrange the layout during ordinary roster changes.
+- Growth: a roster beyond the Studio's physical capacity selects a separately designed, versioned, and visually approved larger layout. The adjoining Quiet workroom and doorway transition are historical renderer proofs, not product targets.
 - Map treatments: warm, cool, and editorial are user-controlled presentation preferences applied to the same map data. They must not change task state, collision, exits, actor identity, or the shared A-style UI chrome. The prototype may hold this preference in memory; durable storage belongs to the later persistence packet.
 - Display: integer 2×, 3×, or 4× scaling only; `image-rendering: pixelated`; no fractional camera scale.
 - Perspective: top-down three-quarter view. Floor and furniture anchors use the tile's bottom center; character feet define the draw-order anchor.
 - Palette: ink navy `#111827`, cream `#f4ebdb`, walnut `#7a4b35`, honey `#d9865e`, moss `#587d61`, muted indigo `#52627b`. Highlights and shadows must remain limited rather than airbrushed.
 - UI: stacked hard-edge frames; a small portrait precedes dialogue; terminal is a dark, docked surface with readable monospace text. Dense content must use normal text rendering, not rasterized glyphs.
-- Source: generate separate RGBA sprite-sheet candidates for character, environment, and UI kits; keep prompt/provenance and a manifest entry beside each. Slice only grid-checked cells into runtime exports. Character creation uses composable sprite layers rather than a pre-made named sprite per employee; see `assets/CHARACTER_ASSEMBLY.md`. Use browser-editor cleanup only when a selected cell needs a targeted correction. Concept stills remain references only and never ship as runtime UI.
+- Source: generate separate RGBA sprite-sheet candidates for character, environment, and UI kits; keep prompt/provenance and a manifest entry beside each. Slice only grid-checked cells into runtime exports. Initial employee creation selects a predefined complete character family and customizes only the employee name. Each family must provide standing, four-direction six-frame walking, seated, sleeping, and portrait states. Concept stills remain references only and never ship as runtime UI.
 - Room assembly gate: an asset is not eligible for room composition merely because it looks good in isolation. Before placement, it must declare a common source scale, perspective class, bottom-center anchor, shadow policy, tile footprint, and draw-order band. The first assembly proof failed this gate and is diagnostic-only. A second failed benchmark also showed that a cohesive generated illustration is not a substitute for a modular map; use it only to identify palette/material qualities, never as a map implementation plan.
 
 ## Motion and accessibility
@@ -33,7 +34,7 @@ The room benchmark is now **modular, expandable, grid-native office space**, rat
 
 ## Required review evidence
 
-Before this specification becomes approved: demonstrate integer-scale rendering, reduced motion, a long conversation, terminal typography, three map treatments with one stable A-style UI, furniture collisions, one sit/stand transition, and a second room using the same parts.
+Before this specification becomes approved: demonstrate integer-scale rendering, reduced motion, a long conversation, terminal typography, three map treatments with one stable A-style UI, furniture collisions, sit/stand transitions, six distinct complete character identities, and the populated six-to-eight-workstation Studio.
 
 ## Integrated rebuild candidate v1 — September 12
 
