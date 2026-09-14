@@ -1,0 +1,35 @@
+{
+  "name": "pixel-harness",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "engines": {
+    "node": ">=26"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:service": "tsx service/src/index.ts",
+    "dev:ui": "vite dev",
+    "build": "vite build",
+    "check": "svelte-check --tsconfig ./tsconfig.json",
+    "test": "tsx --test service/test/**/*.test.ts",
+    "test:office": "node --test src/lib/office/tests/*.test.mjs",
+    "check:service": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2023 --skipLibCheck service/src/*.ts service/test/*.ts"
+  },
+  "devDependencies": {
+    "@sveltejs/adapter-auto": "^6.0.0",
+    "@sveltejs/kit": "^2.47.0",
+    "@sveltejs/vite-plugin-svelte": "^6.2.1",
+    "@types/node": "^24.10.0",
+    "concurrently": "^9.2.1",
+    "svelte": "^5.45.0",
+    "svelte-check": "^4.3.1",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3",
+    "vite": "^7.1.7"
+  },
+  "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0"
+  }
+}

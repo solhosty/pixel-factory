@@ -1,0 +1,170 @@
+[
+  {
+    "name": "desk",
+    "source": "static/assets/desk-v1.png",
+    "crop": {
+      "left": 30,
+      "top": 37,
+      "width": 464,
+      "height": 276
+    },
+    "export": "static/assets/office-normalized/desk.png",
+    "canvas": [
+      96,
+      80
+    ],
+    "footprint": [
+      4,
+      3
+    ],
+    "anchor": [
+      48,
+      64
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  },
+  {
+    "name": "plant",
+    "source": "static/assets/plant-v1.png",
+    "crop": {
+      "left": 32,
+      "top": 62,
+      "width": 232,
+      "height": 241
+    },
+    "export": "static/assets/office-normalized/plant.png",
+    "canvas": [
+      64,
+      64
+    ],
+    "footprint": [
+      2,
+      2
+    ],
+    "anchor": [
+      32,
+      48
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  },
+  {
+    "name": "bookcase",
+    "source": "static/assets/bookcase-v1.png",
+    "crop": {
+      "left": 24,
+      "top": 20,
+      "width": 235,
+      "height": 273
+    },
+    "export": "static/assets/office-normalized/bookcase.png",
+    "canvas": [
+      64,
+      64
+    ],
+    "footprint": [
+      2,
+      2
+    ],
+    "anchor": [
+      32,
+      48
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  },
+  {
+    "name": "chair",
+    "source": "static/assets/chair-v1.png",
+    "crop": {
+      "left": 18,
+      "top": 46,
+      "width": 173,
+      "height": 230
+    },
+    "export": "static/assets/office-normalized/chair.png",
+    "canvas": [
+      64,
+      64
+    ],
+    "footprint": [
+      2,
+      2
+    ],
+    "anchor": [
+      32,
+      48
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  },
+  {
+    "name": "rug",
+    "source": "static/assets/rug-v1.png",
+    "crop": {
+      "left": 26,
+      "top": 14,
+      "width": 559,
+      "height": 253
+    },
+    "export": "static/assets/office-normalized/rug.png",
+    "canvas": [
+      112,
+      96
+    ],
+    "footprint": [
+      5,
+      4
+    ],
+    "anchor": [
+      56,
+      80
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  },
+  {
+    "name": "corkboard",
+    "source": "static/assets/corkboard-v1.png",
+    "crop": {
+      "left": 27,
+      "top": 27,
+      "width": 341,
+      "height": 203
+    },
+    "export": "static/assets/office-normalized/corkboard.png",
+    "canvas": [
+      64,
+      64
+    ],
+    "footprint": [
+      2,
+      2
+    ],
+    "anchor": [
+      32,
+      48
+    ],
+    "transparentBorder": 16,
+    "alpha": "binary 0 or 255; source alpha threshold 127",
+    "scale": 2,
+    "perspective": "top-down three-quarter; front edge down",
+    "shadow": "source contact only; no CSS shadow"
+  }
+]

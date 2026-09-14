@@ -1,0 +1,126 @@
+{
+  "errors": [],
+  "selected": "Rowan",
+  "frames": [
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "11"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "10"
+    },
+    {
+      "moving": "true",
+      "frame": "3",
+      "direction": "3",
+      "x": "12",
+      "y": "10"
+    },
+    {
+      "moving": "true",
+      "frame": "4",
+      "direction": "3",
+      "x": "12",
+      "y": "9"
+    },
+    {
+      "moving": "true",
+      "frame": "5",
+      "direction": "3",
+      "x": "12",
+      "y": "9"
+    },
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "8"
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "7"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "7"
+    }
+  ],
+  "idle": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "3"
+  },
+  "collision": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "3"
+  },
+  "reduced": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "0",
+    "x": "12",
+    "y": "12"
+  },
+  "osReduced": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "3"
+  },
+  "quiet": "576px",
+  "persisted": "treatment-cool s-y_bCXRrkrYfP reduce-motion",
+  "checked": true,
+  "search": 1,
+  "history": [
+    "Verify the same colleague takes a second taskAtlas studio · active assignment",
+    "Review the warm office shellAtlas studio · released"
+  ],
+  "widths": [
+    {
+      "width": 1440,
+      "scroll": 1440,
+      "missing": 0
+    },
+    {
+      "width": 1024,
+      "scroll": 1024,
+      "missing": 0
+    },
+    {
+      "width": 390,
+      "scroll": 390,
+      "missing": 0
+    },
+    {
+      "width": 375,
+      "scroll": 375,
+      "missing": 0
+    },
+    {
+      "view": "inbox",
+      "width": 375,
+      "scroll": 375
+    }
+  ],
+  "terminal": "No terminal session connected.\n\nThis office shell does not launch a worker."
+}

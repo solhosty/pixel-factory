@@ -1,0 +1,26 @@
+{
+  "packet": "2C",
+  "date": "2026-09-13",
+  "workspace": "unversioned checkout; Git is not initialized",
+  "fixtures": "/private/tmp/pixel-2c-acceptance",
+  "checks": {
+    "service_tests": "npm test: 16 passed, 0 failed",
+    "ui_typecheck": "npm run check: 0 errors, 0 warnings",
+    "service_typecheck": "npm run check:service: passed",
+    "build": "npm run build: passed",
+    "browser": "served UI on 127.0.0.1:5173; coworker sidebar, filters, task board filters/navigation, office presence, reload, waiting and completed states passed",
+    "real_codex": "capacity-gated native Codex TUI returned FINAL_STOP_GATE_PASSED; Stop confirmed process exit and capacity returned to 0 active + 0 reserved / 1 effective"
+  },
+  "capacity_fixtures": [
+    "CPU limited",
+    "memory limited",
+    "missing measurement",
+    "stale measurement",
+    "shared host",
+    "multiple sessions under one employee",
+    "simultaneous reservation race",
+    "live owner prevents release",
+    "lower ceiling does not kill active work"
+  ],
+  "remote_claim": "Labeled Coder fixtures only; Coder execution is not connected and remains milestone 6."
+}

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pixel Harness — modular office proof</title>
+    <link rel="stylesheet" href="modular-map.css">
+  </head>
+  <body class="treatment-a">
+    <main>
+      <header>
+        <a href="assets.html">← Asset review</a>
+        <div><p>0A / MODULAR MAP PROOF</p><h1 id="room-name">Warm office</h1></div>
+        <nav aria-label="Map treatment">
+          <span>Map look</span>
+          <button class="active" data-treatment="a">A · Warm</button>
+          <button data-treatment="b">B · Cool</button>
+          <button data-treatment="c">C · Editorial</button>
+        </nav>
+      </header>
+      <section class="frame">
+        <div id="map" class="map" tabindex="0" aria-label="Modular office map. Use arrow keys or WASD to move."></div>
+      </section>
+      <footer>
+        <span>Move: arrow keys / WASD</span>
+        <span id="map-status">24 × 16 · East exit → Quiet workroom</span>
+        <span id="position" aria-live="polite"></span>
+      </footer>
+    </main>
+    <script src="modular-map.js"></script>
+  </body>
+</html>

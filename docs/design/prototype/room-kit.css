@@ -1,0 +1,27 @@
+:root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; min-height: 100vh; background: #111827; color: #f4ebdb; }
+main { width: min(1180px, calc(100% - 48px)); margin: 0 auto; padding: 48px 0 72px; }
+.back { display: inline-block; margin-bottom: 44px; color: #a8bdc8; text-decoration: none; }
+.back:hover { color: #f4ebdb; }
+.eyebrow { margin: 0 0 12px; color: #d9865e; font-size: 12px; letter-spacing: .12em; }
+h1 { margin: 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: -.07em; }
+.lede { max-width: 780px; color: #c9c3b9; line-height: 1.65; }
+.scene { position: relative; isolation: isolate; aspect-ratio: 16 / 10; margin-top: 38px; overflow: hidden; border: 5px solid #080e18; outline: 3px solid #52627b; background-color: #70472c; background-image: url("room-kit/tiles/floor-plank-horizontal-a.png"); background-size: 150px 150px; image-rendering: pixelated; }
+.wall { position: absolute; inset: 0 0 auto; height: 24%; border-bottom: 5px solid #242d3f; background-image: url("room-kit/tiles/wall-cream-baseboard-a.png"); background-size: 190px 190px; image-rendering: pixelated; }
+.scene img { position: absolute; z-index: 1; display: block; max-width: none; height: auto; image-rendering: pixelated; filter: drop-shadow(4px 7px 0 rgb(17 24 39 / .22)); }
+.window { width: 17%; top: 4%; left: 18%; z-index: 2 !important; }
+.board { width: 16%; top: 5%; left: 43%; z-index: 2 !important; }
+.door { width: 18%; top: 3%; right: 5%; z-index: 2 !important; }
+.rug { z-index: 0 !important; filter: none !important; }
+.desk-rug { width: 16%; left: 10%; top: 40%; }
+.table-rug { width: 23%; left: 49%; top: 50%; }
+.desk { width: 28%; left: 6%; top: 30%; }
+.chair { width: 18%; left: 31%; top: 37%; }
+.bookcase { width: 17%; left: 39%; top: 27%; }
+.plant { width: 19%; left: 76%; top: 28%; }
+.lamp { width: 12%; left: 70%; top: 29%; }
+.table { width: 34%; left: 43%; top: 43%; }
+.sofa { width: 22%; right: 4%; bottom: 4%; }
+.coat { width: 14%; left: 4%; bottom: 4%; }
+@media (max-width: 640px) { main { width: min(100% - 28px, 1180px); padding-top: 28px; } .back { margin-bottom: 28px; } .scene { background-size: 80px 80px; } .wall { background-size: 100px 100px; } }

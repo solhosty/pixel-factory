@@ -1,0 +1,187 @@
+{
+  "moving": [
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.721666666666666"
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.513333333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.270416666666666"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.062083333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.860833333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "3",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.618333333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "3",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.409583333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "4",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.166666666666666"
+    },
+    {
+      "moving": "true",
+      "frame": "4",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.965"
+    },
+    {
+      "moving": "true",
+      "frame": "5",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.758333333333333"
+    },
+    {
+      "moving": "true",
+      "frame": "5",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.517083333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.305416666666666"
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.06625"
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.860833333333334"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.6525"
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.444166666666666"
+    }
+  ],
+  "before": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "8",
+    "drawX": "12",
+    "drawY": "8"
+  },
+  "after": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "8",
+    "drawX": "12",
+    "drawY": "8"
+  },
+  "reduced": {
+    "pre": {
+      "moving": "false",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "8",
+      "drawX": "12",
+      "drawY": "8"
+    },
+    "post": {
+      "moving": "false",
+      "frame": "0",
+      "direction": "0",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "9"
+    }
+  },
+  "assertions": "Continuous held movement, fractional render positions, panel focus containment, position preservation, reduced-motion keyboard travel, no reduced-motion menu animation, and mobile width passed."
+}

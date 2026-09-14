@@ -1,0 +1,210 @@
+{
+  "errors": [],
+  "frames": [
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.618333333333334",
+      "top": 574,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "12",
+      "drawX": "12",
+      "drawY": "11.270833333333334",
+      "top": 557,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.930833333333334",
+      "top": 541,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.583333333333334",
+      "top": 524,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "4",
+      "direction": "3",
+      "x": "12",
+      "y": "11",
+      "drawX": "12",
+      "drawY": "10.23625",
+      "top": 507,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "5",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.895833333333334",
+      "top": 491,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "5",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.548333333333334",
+      "top": 474,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "10",
+      "drawX": "12",
+      "drawY": "9.201666666666666",
+      "top": 458,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "1",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.8625",
+      "top": 441,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "2",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.515416666666665",
+      "top": 425,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "0",
+      "direction": "3",
+      "x": "12",
+      "y": "9",
+      "drawX": "12",
+      "drawY": "8.166666666666666",
+      "top": 408,
+      "left": 648
+    },
+    {
+      "moving": "true",
+      "frame": "4",
+      "direction": "3",
+      "x": "12",
+      "y": "8",
+      "drawX": "12",
+      "drawY": "7.828749999999999",
+      "top": 392,
+      "left": 648
+    }
+  ],
+  "stopped": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "7",
+    "drawX": "12",
+    "drawY": "7",
+    "top": 352,
+    "left": 648
+  },
+  "still": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "7",
+    "drawX": "12",
+    "drawY": "7",
+    "top": 352,
+    "left": 648
+  },
+  "returned": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "7",
+    "drawX": "12",
+    "drawY": "7",
+    "top": 352,
+    "left": 648
+  },
+  "focus": "Return to office",
+  "restored": "Projects",
+  "settingsClosed": 0,
+  "north": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "3",
+    "x": "12",
+    "y": "1",
+    "drawX": "12",
+    "drawY": "1",
+    "top": 68,
+    "left": 648
+  },
+  "reduced": {
+    "moving": "false",
+    "frame": "0",
+    "direction": "0",
+    "x": "12",
+    "y": "1",
+    "drawX": "12",
+    "drawY": "1",
+    "top": 64,
+    "left": 648
+  },
+  "animations": 0,
+  "mobile": {
+    "width": 390,
+    "scroll": 390,
+    "rect": {
+      "x": 98,
+      "y": 70,
+      "width": 280,
+      "height": 158.296875,
+      "top": 70,
+      "right": 378,
+      "bottom": 228.296875,
+      "left": 98
+    }
+  }
+}

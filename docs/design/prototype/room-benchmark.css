@@ -1,0 +1,12 @@
+:root { color-scheme: dark; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+* { box-sizing: border-box; }
+body { margin: 0; background: #111827; color: #f4ebdb; }
+main { width: min(1586px, calc(100% - 48px)); margin: 0 auto; padding: 34px 0 68px; }
+a { color: #a8bdc8; text-decoration: none; font-size: 12px; }
+a:hover { color: #f4ebdb; }
+p { margin: 42px 0 10px; color: #d9865e; font-size: 12px; letter-spacing: .12em; }
+h1 { margin: 0; font-size: clamp(30px, 5vw, 54px); letter-spacing: -.07em; }
+span { display: block; margin-top: 9px; color: #c9c3b9; font-size: 12px; }
+figure { margin: 30px 0 0; border: 5px solid #080e18; outline: 3px solid #52627b; background: #080e18; }
+img { display: block; width: 100%; height: auto; image-rendering: pixelated; }
+@media (max-width: 560px) { main { width: min(100% - 28px, 1586px); padding-top: 24px; } p { margin-top: 30px; } }

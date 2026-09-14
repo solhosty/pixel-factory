@@ -1,0 +1,81 @@
+{
+  "startedAt": "2026-09-12T18:56:03.771Z",
+  "workspaceA": "pixel-harness-probe-a",
+  "workspaceB": "pixel-harness-probe-b",
+  "pty": {
+    "response": {
+      "exitCode": 1,
+      "stdout": "",
+      "stderr": ""
+    },
+    "ready": {
+      "processId": "packet-00-pty",
+      "stream": "stdout",
+      "deltaBase64": "UkVBRFkNCg==",
+      "capReached": false
+    },
+    "input": {
+      "processId": "packet-00-pty",
+      "stream": "stdout",
+      "deltaBase64": "SU5QVVQ6cGFja2V0LTAwLWlucHV0DQo=",
+      "capReached": false
+    }
+  },
+  "thread": {
+    "threadId": "01a096fa-0931-7f22-9605-88084702dd3a",
+    "firstTurnId": "01a096fa-09ae-7bc0-8473-17f1e5a3e6bf",
+    "secondTurnId": "01a096fa-370d-7e63-a518-50cbc818d6cd",
+    "firstCompletion": {
+      "threadId": "01a096fa-0931-7f22-9605-88084702dd3a",
+      "turn": {
+        "id": "01a096fa-09ae-7bc0-8473-17f1e5a3e6bf",
+        "items": [
+          {
+            "type": "agentMessage",
+            "id": "msg_01d46b950fb58f1d016aa5a04e325487d1a7c69362781f2337",
+            "text": "Created:\n\n- [/private/tmp/pixel-harness-probe-a/packet-00-a.txt](/private/tmp/pixel-harness-probe-a/packet-00-a.txt)\n- [/private/tmp/pixel-harness-probe-b/packet-00-b.txt](/private/tmp/pixel-harness-probe-b/packet-00-b.txt)",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "summary",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1789239364,
+        "completedAt": 1789239375,
+        "durationMs": 11574
+      }
+    },
+    "secondCompletion": {
+      "threadId": "01a096fa-0931-7f22-9605-88084702dd3a",
+      "turn": {
+        "id": "01a096fa-370d-7e63-a518-50cbc818d6cd",
+        "items": [
+          {
+            "type": "agentMessage",
+            "id": "msg_01d46b950fb58f1d016aa5a050e9d487d183cd9471de8edafd",
+            "text": "FOLLOW-UP RECEIVED",
+            "phase": "final_answer",
+            "memoryCitation": null,
+            "delivery": null,
+            "questions": null
+          }
+        ],
+        "itemsView": "summary",
+        "status": "completed",
+        "error": null,
+        "startedAt": 1789239375,
+        "completedAt": 1789239377,
+        "durationMs": 1426
+      }
+    }
+  },
+  "files": {
+    "a": "A\n",
+    "b": "B\n"
+  },
+  "finishedAt": "2026-09-12T18:56:17.115Z",
+  "stderr": "{\"timestamp\":\"2026-09-12T18:56:03.915041Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T18:56:03.915435Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T18:56:04.228622Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T18:56:04.228640Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n"
+}
