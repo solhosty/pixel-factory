@@ -201,6 +201,18 @@ const migrations = [
  UPDATE employees SET character_id = 'studio-character-03' WHERE employee_id = (SELECT employee_id FROM employees WHERE active = 1 ORDER BY created_at LIMIT 1 OFFSET 2);
  CREATE UNIQUE INDEX active_character_owner ON employees(character_id) WHERE active = 1 AND character_id IS NOT NULL;
  ` }
+, { id: '010_security_engineer_position_v1', classification: 'forward-only', sql: `
+ UPDATE positions SET sort_order = sort_order + 10 WHERE position_id IN ('project-manager','marketing');
+ INSERT INTO positions VALUES ('security-engineer','Security Engineer',5);
+ UPDATE positions SET sort_order = 6 WHERE position_id = 'project-manager';
+ UPDATE positions SET sort_order = 7 WHERE position_id = 'marketing';
+ INSERT INTO skills VALUES
+   ('threat-modeling','Threat modeling','Identify trust boundaries, abuse cases, and proportionate mitigations before implementation.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('security-verification','Security verification','Review security-sensitive changes and verify controls with focused, reproducible checks.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+ INSERT INTO position_default_skills VALUES
+   ('security-engineer','threat-modeling'),
+   ('security-engineer','security-verification');
+ ` }
 ] as const;
 
 const now = () => new Date().toISOString();
@@ -220,8 +232,8 @@ const fingerprintWorkspace = (roots: string[]) => {
   for (const root of [...roots].sort()) walk(root);
   return hash.digest('hex');
 };
-export const CHARACTER_IDS = Array.from({ length: 8 }, (_, index) => `studio-character-${String(index + 1).padStart(2, '0')}`);
-const POSITION_IDS = ['designer','frontend-engineer','backend-engineer','fullstack-engineer','project-manager','marketing'] as const;
+export const CHARACTER_IDS = Array.from({ length: 6 }, (_, index) => `studio-character-${String(index + 1).padStart(2, '0')}`);
+const POSITION_IDS = ['designer','frontend-engineer','backend-engineer','fullstack-engineer','security-engineer','project-manager','marketing'] as const;
 const CHARACTER_RECIPES: Record<string, Record<string,string>> = {
   'studio-character-01': { body:'base-01',skin:'sienna-01',hair:'short-auburn-03',top:'cardigan-navy-01',bottom:'trousers-charcoal-01',accent:'indigo-01',accessory:'glasses-round-01' },
   'studio-character-02': { body:'base-01',skin:'umber-02',hair:'short-auburn-03',top:'cardigan-navy-01',bottom:'trousers-charcoal-01',accent:'terracotta-01',accessory:'glasses-round-01' },
@@ -286,18 +298,19 @@ export class PixelDatabase {
     return {
       positions: this.db.prepare('SELECT * FROM positions ORDER BY sort_order').all().map((position:any)=>({ ...position, default_skills:this.db.prepare('SELECT s.* FROM position_default_skills p JOIN skills s USING(skill_id) WHERE p.position_id = ? ORDER BY s.name').all(position.position_id) })),
       skills: this.db.prepare("SELECT * FROM skills WHERE kind = 'built-in' ORDER BY name").all(),
-      characters: CHARACTER_IDS.map(character_id=>({ character_id, owner_employee_id:owned.get(character_id)||null, ready:['studio-character-01','studio-character-02','studio-character-03','studio-character-04','studio-character-05','studio-character-06'].includes(character_id) }))
+      characters: CHARACTER_IDS.map(character_id=>({ character_id, owner_employee_id:owned.get(character_id)||null, ready:true }))
     };
   }
   private availableCharacter(characterId?: string) {
+    if(characterId&&!CHARACTER_IDS.includes(characterId)) throw new ServiceError('CHARACTER_IDENTITY_UNAVAILABLE','Choose one of the complete predefined character identities.',{character_id:characterId},409);
     const requested=characterId||CHARACTER_IDS.find(candidate=>!this.db.prepare('SELECT 1 FROM employees WHERE active=1 AND character_id=?').get(candidate));
-    if(!requested||!CHARACTER_IDS.includes(requested)) throw new ServiceError('STUDIO_CAPACITY_REACHED','The curated eight-desk Studio has no unused character identity.',{capacity:8},409);
+    if(!requested) throw new ServiceError('STUDIO_CAPACITY_REACHED','The initial roster has no unused complete character identity.',{active_roster_capacity:CHARACTER_IDS.length,studio_desks:8},409);
     if(this.db.prepare('SELECT 1 FROM employees WHERE active=1 AND character_id=?').get(requested)) throw new ServiceError('CHARACTER_IDENTITY_IN_USE','Choose an unused predefined character identity.',{character_id:requested},409);
     return requested;
   }
   createEmployee(input: { name: string; position_id?: string; character_id?: string; title?: string; color?: string }) {
     if (!input.name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Staff name is required');
-    const positionId=input.position_id||'fullstack-engineer'; if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the six employee positions.');
+    const positionId=input.position_id||'fullstack-engineer'; if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the seven employee positions.');
     const characterId=this.availableCharacter(input.character_id), position=this.db.prepare('SELECT name FROM positions WHERE position_id=?').get(positionId) as {name:string}, employee_id=id('emp'), at=now();
     this.db.prepare('INSERT INTO employees (employee_id,name,title,color,active,created_at,updated_at,appearance_recipe,position_id,character_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(employee_id,input.name.trim(),position.name,input.color||'#587d61',1,at,at,recipeFor(characterId),positionId,characterId);
     return this.employeeDetail(employee_id)!;
@@ -313,7 +326,7 @@ export class PixelDatabase {
   listEmployees() { return (this.db.prepare('SELECT employee_id FROM employees ORDER BY created_at').all() as Array<{ employee_id: string }>).map(({ employee_id }) => this.employeeDetail(employee_id)); }
   updateEmployee(employeeId: string, input: { name?: string; position_id?: string; character_id?: string; color?: string; active?: boolean }) {
     const old = this.getEmployee(employeeId) as Record<string, SqlValue> | undefined; if (!old) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404);
-    const positionId=input.position_id||String(old.position_id); if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the six employee positions.');
+    const positionId=input.position_id||String(old.position_id); if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the seven employee positions.');
     const characterId=input.character_id&&input.character_id!==old.character_id?this.availableCharacter(input.character_id):String(old.character_id);
     const position=this.db.prepare('SELECT name FROM positions WHERE position_id=?').get(positionId) as {name:string};
     this.db.prepare('UPDATE employees SET name=?,title=?,color=?,active=?,position_id=?,character_id=?,appearance_recipe=?,updated_at=? WHERE employee_id=?').run(input.name?.trim()||old.name,position.name,input.color||old.color,input.active===undefined?old.active:Number(input.active),positionId,characterId,recipeFor(characterId),now(),employeeId);

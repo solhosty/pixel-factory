@@ -1,22 +1,25 @@
 # Packet 3B handoff — employee roles, skills, and Studio
 
-Status: worktree implementation complete against its former six-position packet; incomplete against current main, which also requires Security Engineer.
+Status: complete.
 
 ## Implemented
 
-- Six repeatable positions with curated default skill bundles.
+- Seven repeatable positions with curated default skill bundles, including Security Engineer with Threat modeling and Security verification.
 - Built-in and authored employee skills, explicitly separated from permissions and capabilities.
 - Launch-time resolution of position defaults, employee skills, guidance, and task instructions into an immutable session snapshot.
 - Predefined character ownership with duplicate-active-owner rejection and name-only appearance setup.
 - One company-wide eight-desk Studio; the Quiet workroom and doorway transition are removed. Local occupancy remains independent of the single-worker execution ceiling.
 - Six complete character families. Identities 03–06 were generated one family at a time from the exact current production atlases; each has body/seated, four-direction six-frame walk, sleep, and portrait states.
+- The six complete identities bound the initial active roster while the eight-desk Studio retains intentional vacancies. Unfinished identity IDs are rejected rather than rendered through another character's fallback recipe.
 - The `pixel-office-assets` skill now requires current-roster inspection and one-family-at-a-time approval before generation.
 
 ## Evidence
 
 - `npm test`: 28/28 passing.
+- `npm run check:service`: passed.
 - `npm run check`: 0 errors and 0 warnings.
 - `npm run test:office`: 8/8 passing.
+- `npm run build`: passed.
 - Served-browser review: empty eight-desk Studio, a three-person Studio with identities 01–03, and `/studio` state/step review for identities 04–06.
 
 ## Final browser acceptance
@@ -29,6 +32,6 @@ Status: worktree implementation complete against its former six-position packet;
 
 This is implementation acceptance. User visual approval remains a separate product decision, not a claim implied by the automated or browser evidence.
 
-## Main integration note
+## Final main acceptance
 
-The current main specification has seven positions. This worktree implemented and tested six, omitting Security Engineer and its curated default skill bundle. The Studio, character, skill-snapshot, and ownership work is merged, but Packet 3B remains in progress until that taxonomy gap is implemented and retested.
+The current main specification's seventh Security Engineer position is added through forward-only migration `010_security_engineer_position_v1`, preserving the checksum and upgrade path for databases that already applied migration 009. The isolated served app exposed all seven positions in the employee form; creating Morgan as a Security Engineer succeeded, and the profile showed the exact Threat modeling and Security verification defaults plus the capability-separation note. A completion audit then found that the service accepted unfinished identities 07–08 and rendered them with identity 01's recipe. The service now exposes and assigns only the six complete families, rejects unfinished IDs, and keeps roster capacity independent from the Studio's eight desks. Automated and isolated served-browser regressions passed after the correction. Packet 3B is complete. Packet 3C is next only on explicit request.
