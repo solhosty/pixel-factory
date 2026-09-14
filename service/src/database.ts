@@ -134,6 +134,73 @@ const migrations = [
  ALTER TABLE inbox_requests ADD COLUMN decision_id TEXT REFERENCES decision_meetings(decision_id);
  ALTER TABLE inbox_requests ADD COLUMN decision_version INTEGER;
  ` }
+, { id: '009_employee_profiles_v1', classification: 'forward-only', sql: `
+ CREATE TABLE positions (
+   position_id TEXT PRIMARY KEY,
+   name TEXT NOT NULL UNIQUE,
+   sort_order INTEGER NOT NULL UNIQUE
+ );
+ CREATE TABLE skills (
+   skill_id TEXT PRIMARY KEY,
+   name TEXT NOT NULL,
+   instructions TEXT NOT NULL,
+   kind TEXT NOT NULL CHECK(kind IN ('built-in','custom')),
+   created_at TEXT NOT NULL
+ );
+ CREATE TABLE position_default_skills (
+   position_id TEXT NOT NULL REFERENCES positions(position_id),
+   skill_id TEXT NOT NULL REFERENCES skills(skill_id),
+   PRIMARY KEY(position_id, skill_id)
+ );
+ CREATE TABLE employee_skills (
+   employee_id TEXT NOT NULL REFERENCES employees(employee_id),
+   skill_id TEXT NOT NULL REFERENCES skills(skill_id),
+   enabled INTEGER NOT NULL DEFAULT 1 CHECK(enabled IN (0,1)),
+   selected_at TEXT NOT NULL,
+   PRIMARY KEY(employee_id, skill_id)
+ );
+ ALTER TABLE employees ADD COLUMN position_id TEXT REFERENCES positions(position_id);
+ ALTER TABLE employees ADD COLUMN character_id TEXT;
+ ALTER TABLE sessions ADD COLUMN resolved_context_json TEXT NOT NULL DEFAULT '{}';
+
+ INSERT INTO positions VALUES
+   ('designer','Designer',1),
+   ('frontend-engineer','Frontend Engineer',2),
+   ('backend-engineer','Backend Engineer',3),
+   ('fullstack-engineer','Fullstack Engineer',4),
+   ('project-manager','Project Manager',5),
+   ('marketing','Marketing',6);
+ INSERT INTO skills VALUES
+   ('interface-design','Interface design','Design clear interaction states and polished interface systems.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('visual-qa','Visual QA','Inspect responsive, theme, motion, and populated product states.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('frontend-implementation','Frontend implementation','Implement accessible browser interfaces in the project stack.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('browser-verification','Browser verification','Verify behavior through the served application.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('service-design','Service design','Implement bounded local service and API behavior.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('data-modeling','Data modeling','Design durable migrations, invariants, and persistence tests.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('fullstack-delivery','Fullstack delivery','Coordinate UI, service, persistence, and verification as one change.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('delivery-planning','Delivery planning','Sequence bounded work, dependencies, acceptance, and handoff.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('project-coordination','Project coordination','Track decisions, blockers, ownership, and verified outcomes.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('product-messaging','Product messaging','Write specific, evidence-grounded product communication.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now')),
+   ('launch-research','Launch research','Research audiences, channels, alternatives, and launch evidence.','built-in',strftime('%Y-%m-%dT%H:%M:%fZ','now'));
+ INSERT INTO position_default_skills VALUES
+   ('designer','interface-design'),('designer','visual-qa'),
+   ('frontend-engineer','frontend-implementation'),('frontend-engineer','browser-verification'),
+   ('backend-engineer','service-design'),('backend-engineer','data-modeling'),
+   ('fullstack-engineer','fullstack-delivery'),('fullstack-engineer','browser-verification'),
+   ('project-manager','delivery-planning'),('project-manager','project-coordination'),
+   ('marketing','product-messaging'),('marketing','launch-research');
+ UPDATE employees SET position_id = CASE
+   WHEN lower(title) LIKE '%front%' THEN 'frontend-engineer'
+   WHEN lower(title) LIKE '%back%' THEN 'backend-engineer'
+   WHEN lower(title) LIKE '%design%' THEN 'designer'
+   WHEN lower(title) LIKE '%project%' THEN 'project-manager'
+   WHEN lower(title) LIKE '%market%' THEN 'marketing'
+   ELSE 'fullstack-engineer' END;
+ UPDATE employees SET character_id = 'studio-character-01' WHERE employee_id = (SELECT employee_id FROM employees WHERE active = 1 ORDER BY created_at LIMIT 1);
+ UPDATE employees SET character_id = 'studio-character-02' WHERE employee_id = (SELECT employee_id FROM employees WHERE active = 1 ORDER BY created_at LIMIT 1 OFFSET 1);
+ UPDATE employees SET character_id = 'studio-character-03' WHERE employee_id = (SELECT employee_id FROM employees WHERE active = 1 ORDER BY created_at LIMIT 1 OFFSET 2);
+ CREATE UNIQUE INDEX active_character_owner ON employees(character_id) WHERE active = 1 AND character_id IS NOT NULL;
+ ` }
 ] as const;
 
 const now = () => new Date().toISOString();
@@ -153,12 +220,17 @@ const fingerprintWorkspace = (roots: string[]) => {
   for (const root of [...roots].sort()) walk(root);
   return hash.digest('hex');
 };
-const recipeFor = (employeeId: string) => JSON.stringify({
-  body: 'base-01', skin: ['umber-02', 'sienna-01', 'golden-01'][employeeId.charCodeAt(4) % 3],
-  hair: ['short-auburn-03', 'curl-dark-01', 'crop-ink-01'][employeeId.charCodeAt(8) % 3],
-  top: ['cardigan-navy-01', 'shirt-cream-01', 'overshirt-moss-01'][employeeId.charCodeAt(12) % 3],
-  bottom: 'trousers-charcoal-01', accent: ['moss-01', 'terracotta-01', 'indigo-01'][employeeId.charCodeAt(16) % 3], accessory: 'glasses-round-01'
-});
+export const CHARACTER_IDS = Array.from({ length: 8 }, (_, index) => `studio-character-${String(index + 1).padStart(2, '0')}`);
+const POSITION_IDS = ['designer','frontend-engineer','backend-engineer','fullstack-engineer','project-manager','marketing'] as const;
+const CHARACTER_RECIPES: Record<string, Record<string,string>> = {
+  'studio-character-01': { body:'base-01',skin:'sienna-01',hair:'short-auburn-03',top:'cardigan-navy-01',bottom:'trousers-charcoal-01',accent:'indigo-01',accessory:'glasses-round-01' },
+  'studio-character-02': { body:'base-01',skin:'umber-02',hair:'short-auburn-03',top:'cardigan-navy-01',bottom:'trousers-charcoal-01',accent:'terracotta-01',accessory:'glasses-round-01' },
+  'studio-character-03': { body:'identity-03',skin:'medium-brown-03',hair:'wavy-dark-03',top:'overshirt-ochre-03',bottom:'trousers-charcoal-01',accent:'ochre-03',accessory:'none' },
+  'studio-character-04': { body:'identity-04',skin:'olive-04',hair:'pixie-silver-04',top:'vest-moss-04',bottom:'trousers-charcoal-04',accent:'cream-04',accessory:'square-glasses-04' },
+  'studio-character-05': { body:'identity-05',skin:'deep-brown-05',hair:'natural-curls-05',top:'cardigan-clay-05',bottom:'trousers-navy-05',accent:'cream-05',accessory:'none' },
+  'studio-character-06': { body:'identity-06',skin:'warm-medium-06',hair:'side-part-ink-06',top:'sweater-navy-06',bottom:'trousers-charcoal-06',accent:'collar-rust-06',accessory:'none' }
+};
+const recipeFor = (characterId: string) => JSON.stringify(CHARACTER_RECIPES[characterId] || CHARACTER_RECIPES['studio-character-01']);
 
 export class PixelDatabase {
   readonly db: DatabaseSync;
@@ -209,17 +281,60 @@ export class PixelDatabase {
   }
   setFolderAvailability(folderId: string, availability: 'available' | 'unavailable', reason: string | null = null) { this.db.prepare('UPDATE local_folders SET availability = ?, unavailable_reason = ?, updated_at = ? WHERE folder_id = ?').run(availability, reason, now(), folderId); }
   relinkFolder(folderId: string, canonical: string, display: string) { const folder = this.db.prepare('SELECT * FROM local_folders WHERE folder_id = ?').get(folderId) as unknown as FolderRow | undefined; if (!folder) throw new ServiceError('NOT_FOUND', 'Folder not found', {}, 404); const clash = this.folderByPath(canonical); if (clash && clash.folder_id !== folderId) throw new ServiceError('FOLDER_ALREADY_ATTACHED', 'That folder is already attached', { folder_id: clash.folder_id }, 409); for (const other of this.listFolders(folder.project_id)) if (other.folder_id !== folderId && (canonical.startsWith(`${other.canonical_path}/`) || other.canonical_path.startsWith(`${canonical}/`))) throw new ServiceError('OVERLAPPING_FOLDER', 'A parent or child folder is already attached to this project', { existing_folder_id: other.folder_id }, 409); this.db.prepare('UPDATE local_folders SET canonical_path = ?, display_path = ?, availability = ?, unavailable_reason = NULL, updated_at = ? WHERE folder_id = ?').run(canonical, display, 'available', now(), folderId); return this.db.prepare('SELECT * FROM local_folders WHERE folder_id = ?').get(folderId) as unknown as FolderRow; }
-  createEmployee(input: { name: string; title?: string; color?: string }) { if (!input.name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Staff name is required'); const employee_id = id('emp'), at = now(); this.db.prepare('INSERT INTO employees VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(employee_id, input.name.trim(), input.title?.trim() || 'Harness operator', input.color || '#587d61', 1, at, at, recipeFor(employee_id)); return this.employeeDetail(employee_id)!; }
+  staffCatalog() {
+    const owned = new Map((this.db.prepare('SELECT character_id, employee_id FROM employees WHERE active = 1 AND character_id IS NOT NULL').all() as Array<{character_id:string;employee_id:string}>).map(row => [row.character_id,row.employee_id]));
+    return {
+      positions: this.db.prepare('SELECT * FROM positions ORDER BY sort_order').all().map((position:any)=>({ ...position, default_skills:this.db.prepare('SELECT s.* FROM position_default_skills p JOIN skills s USING(skill_id) WHERE p.position_id = ? ORDER BY s.name').all(position.position_id) })),
+      skills: this.db.prepare("SELECT * FROM skills WHERE kind = 'built-in' ORDER BY name").all(),
+      characters: CHARACTER_IDS.map(character_id=>({ character_id, owner_employee_id:owned.get(character_id)||null, ready:['studio-character-01','studio-character-02','studio-character-03','studio-character-04','studio-character-05','studio-character-06'].includes(character_id) }))
+    };
+  }
+  private availableCharacter(characterId?: string) {
+    const requested=characterId||CHARACTER_IDS.find(candidate=>!this.db.prepare('SELECT 1 FROM employees WHERE active=1 AND character_id=?').get(candidate));
+    if(!requested||!CHARACTER_IDS.includes(requested)) throw new ServiceError('STUDIO_CAPACITY_REACHED','The curated eight-desk Studio has no unused character identity.',{capacity:8},409);
+    if(this.db.prepare('SELECT 1 FROM employees WHERE active=1 AND character_id=?').get(requested)) throw new ServiceError('CHARACTER_IDENTITY_IN_USE','Choose an unused predefined character identity.',{character_id:requested},409);
+    return requested;
+  }
+  createEmployee(input: { name: string; position_id?: string; character_id?: string; title?: string; color?: string }) {
+    if (!input.name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Staff name is required');
+    const positionId=input.position_id||'fullstack-engineer'; if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the six employee positions.');
+    const characterId=this.availableCharacter(input.character_id), position=this.db.prepare('SELECT name FROM positions WHERE position_id=?').get(positionId) as {name:string}, employee_id=id('emp'), at=now();
+    this.db.prepare('INSERT INTO employees (employee_id,name,title,color,active,created_at,updated_at,appearance_recipe,position_id,character_id) VALUES (?,?,?,?,?,?,?,?,?,?)').run(employee_id,input.name.trim(),position.name,input.color||'#587d61',1,at,at,recipeFor(characterId),positionId,characterId);
+    return this.employeeDetail(employee_id)!;
+  }
   getEmployee(employeeId: string) { return this.db.prepare('SELECT * FROM employees WHERE employee_id = ?').get(employeeId); }
   employeeDetail(employeeId: string): Record<string, any> | undefined {
     const employee = this.getEmployee(employeeId) as Record<string, unknown> | undefined; if (!employee) return undefined;
     const assignment = this.db.prepare(`SELECT a.*, t.title AS task_title, t.project_id, p.name AS project_name FROM assignments a JOIN tasks t ON t.task_id = a.task_id JOIN projects p ON p.project_id = t.project_id WHERE a.employee_id = ? AND a.ended_at IS NULL ORDER BY a.assigned_at DESC LIMIT 1`).get(employeeId);
     const history = this.db.prepare(`SELECT a.*, t.title AS task_title, p.name AS project_name FROM assignments a JOIN tasks t ON t.task_id = a.task_id JOIN projects p ON p.project_id = t.project_id WHERE a.employee_id = ? ORDER BY a.assigned_at DESC`).all(employeeId);
-    return { ...employee, environment: this.employeeEnvironment(employeeId), appearance_recipe: JSON.parse(String(employee.appearance_recipe || '{}')), assignment, history };
+    const skills=this.db.prepare('SELECT s.*, es.enabled FROM employee_skills es JOIN skills s USING(skill_id) WHERE es.employee_id=? ORDER BY s.name').all(employeeId);
+    return { ...employee, environment: this.employeeEnvironment(employeeId), appearance_recipe: JSON.parse(String(employee.appearance_recipe || '{}')), skills, assignment, history };
   }
   listEmployees() { return (this.db.prepare('SELECT employee_id FROM employees ORDER BY created_at').all() as Array<{ employee_id: string }>).map(({ employee_id }) => this.employeeDetail(employee_id)); }
-  updateEmployee(employeeId: string, input: { name?: string; title?: string; color?: string; active?: boolean }) { const old = this.getEmployee(employeeId) as Record<string, SqlValue> | undefined; if (!old) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404); this.db.prepare('UPDATE employees SET name = ?, title = ?, color = ?, active = ?, updated_at = ? WHERE employee_id = ?').run(input.name?.trim() || old.name, input.title?.trim() || old.title, input.color || old.color, input.active === undefined ? old.active : Number(input.active), now(), employeeId); return this.employeeDetail(employeeId); }
-  updateAppearance(employeeId: string, recipe: Record<string, string>) { if (!this.getEmployee(employeeId)) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404); const valid = ['body', 'skin', 'hair', 'top', 'bottom', 'accent', 'accessory']; for (const key of valid) if (typeof recipe[key] !== 'string' || !recipe[key].trim()) throw new ServiceError('VALIDATION_ERROR', `Appearance recipe needs ${key}`); this.db.prepare('UPDATE employees SET appearance_recipe = ?, updated_at = ? WHERE employee_id = ?').run(JSON.stringify(Object.fromEntries(valid.map((key) => [key, recipe[key].trim()]))), now(), employeeId); return this.employeeDetail(employeeId); }
+  updateEmployee(employeeId: string, input: { name?: string; position_id?: string; character_id?: string; color?: string; active?: boolean }) {
+    const old = this.getEmployee(employeeId) as Record<string, SqlValue> | undefined; if (!old) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404);
+    const positionId=input.position_id||String(old.position_id); if(!POSITION_IDS.includes(positionId as any)) throw new ServiceError('VALIDATION_ERROR','Choose one of the six employee positions.');
+    const characterId=input.character_id&&input.character_id!==old.character_id?this.availableCharacter(input.character_id):String(old.character_id);
+    const position=this.db.prepare('SELECT name FROM positions WHERE position_id=?').get(positionId) as {name:string};
+    this.db.prepare('UPDATE employees SET name=?,title=?,color=?,active=?,position_id=?,character_id=?,appearance_recipe=?,updated_at=? WHERE employee_id=?').run(input.name?.trim()||old.name,position.name,input.color||old.color,input.active===undefined?old.active:Number(input.active),positionId,characterId,recipeFor(characterId),now(),employeeId);
+    return this.employeeDetail(employeeId);
+  }
+  updateAppearance(_employeeId?:string,_recipe?:Record<string,string>):never { throw new ServiceError('PREDEFINED_CHARACTER_REQUIRED','Character appearance is fixed; choose an unused predefined identity instead.',{},409); }
+  addEmployeeSkill(employeeId:string,input:{skill_id?:string;name?:string;instructions?:string;enabled?:boolean}) {
+    if(!this.getEmployee(employeeId)) throw new ServiceError('NOT_FOUND','Staff member not found',{},404);
+    let skillId=String(input.skill_id||'');
+    if(!skillId){if(!input.name?.trim()||!input.instructions?.trim()) throw new ServiceError('VALIDATION_ERROR','A custom skill needs a name and reusable instructions.');skillId=id('skill');this.db.prepare('INSERT INTO skills VALUES (?,?,?,?,?)').run(skillId,input.name.trim(),redactCodexText(input.instructions.trim()),'custom',now());}
+    if(!this.db.prepare('SELECT 1 FROM skills WHERE skill_id=?').get(skillId)) throw new ServiceError('NOT_FOUND','Skill not found',{},404);
+    this.db.prepare('INSERT INTO employee_skills VALUES (?,?,?,?) ON CONFLICT(employee_id,skill_id) DO UPDATE SET enabled=excluded.enabled').run(employeeId,skillId,input.enabled===false?0:1,now());return this.employeeDetail(employeeId);
+  }
+  setEmployeeSkill(employeeId:string,skillId:string,enabled:boolean){if(!this.db.prepare('SELECT 1 FROM employee_skills WHERE employee_id=? AND skill_id=?').get(employeeId,skillId)) throw new ServiceError('NOT_FOUND','Employee skill not found',{},404);this.db.prepare('UPDATE employee_skills SET enabled=? WHERE employee_id=? AND skill_id=?').run(Number(enabled),employeeId,skillId);return this.employeeDetail(employeeId);}
+  resolvedContext(employeeId:string,projectId:string,taskId:string,taskInstructions:string){
+    const employee=this.employeeDetail(employeeId);if(!employee)throw new ServiceError('NOT_FOUND','Staff member not found',{},404);
+    const defaults=this.db.prepare('SELECT s.skill_id,s.name,s.instructions,s.kind FROM position_default_skills p JOIN skills s USING(skill_id) WHERE p.position_id=? ORDER BY s.name').all(employee.position_id);
+    const selected=this.db.prepare('SELECT s.skill_id,s.name,s.instructions,s.kind FROM employee_skills es JOIN skills s USING(skill_id) WHERE es.employee_id=? AND es.enabled=1 ORDER BY s.name').all(employeeId);
+    const guidance=this.guidanceForTask(projectId,taskId);
+    return { version:1, position:{position_id:employee.position_id,name:employee.title}, skills:[...defaults,...selected.filter((skill:any)=>!defaults.some((item:any)=>item.skill_id===skill.skill_id))], project_guidance:guidance, task_instructions:redactCodexText(taskInstructions), captured_at:now(), capability_note:'Skills are instructions only. Filesystem scope, tools, accounts, permissions, and execution environment remain independently enforced.' };
+  }
   createTask(input: { project_id: string; title: string; employee_id?: string; folder_ids: string[]; primary_folder_id: string }) { if (!input.title.trim()) throw new ServiceError('VALIDATION_ERROR', 'Task title is required'); if (!this.getProject(input.project_id)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); const uniqueFolders = [...new Set(input.folder_ids)]; if (!uniqueFolders.length || !uniqueFolders.includes(input.primary_folder_id)) throw new ServiceError('VALIDATION_ERROR', 'Select task folders and one primary folder'); for (const folderId of uniqueFolders) { const folder = this.db.prepare('SELECT * FROM local_folders WHERE folder_id = ?').get(folderId) as unknown as FolderRow | undefined; if (!folder || folder.project_id !== input.project_id) throw new ServiceError('INVALID_FOLDER_SELECTION', 'Each task folder must belong to this project', { folder_id: folderId }); if (folder.availability !== 'available') throw new ServiceError('FOLDER_UNAVAILABLE', 'Relink unavailable folders before assigning them', { folder_id: folderId }); }
     if (input.employee_id && !this.getEmployee(input.employee_id)) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404);
     if (input.employee_id && this.employeeDetail(input.employee_id)?.assignment) throw new ServiceError('EMPLOYEE_BUSY', 'Finish or archive the current assignment before assigning this employee again', { employee_id: input.employee_id }, 409);
@@ -297,9 +412,10 @@ export class PixelDatabase {
   executionDetail(attemptId: string): Record<string, any> {
     const attempt = this.db.prepare(`SELECT a.*, s.task_id, s.employee_id, s.purpose, s.continuation_state, t.project_id, t.title AS task_title, e.name AS employee_name, l.lease_id, l.state AS lease_state, l.stop_reason FROM attempts a JOIN sessions s ON s.session_id = a.session_id JOIN tasks t ON t.task_id = s.task_id JOIN employees e ON e.employee_id = s.employee_id LEFT JOIN worker_leases l ON l.attempt_id = a.attempt_id WHERE a.attempt_id = ?`).get(attemptId) as Record<string, unknown> | undefined;
     if (!attempt) throw new ServiceError('NOT_FOUND', 'Execution not found', {}, 404);
-    return { ...attempt, workspace_set: JSON.parse(String(attempt.workspace_set_json)), events: this.db.prepare('SELECT event_id, sequence, at, kind, payload_json, adapter FROM attempt_events WHERE attempt_id = ? ORDER BY sequence').all(attemptId).map((event: Record<string, unknown>) => ({ ...event, payload: JSON.parse(String(event.payload_json)) })), messages: this.db.prepare('SELECT * FROM follow_up_messages WHERE session_id = ? ORDER BY queued_at').all(String(attempt.session_id)) };
+    const session=this.db.prepare('SELECT resolved_context_json FROM sessions WHERE session_id=?').get(String(attempt.session_id)) as {resolved_context_json:string};
+    return { ...attempt, resolved_context:JSON.parse(session.resolved_context_json||'{}'), workspace_set: JSON.parse(String(attempt.workspace_set_json)), events: this.db.prepare('SELECT event_id, sequence, at, kind, payload_json, adapter FROM attempt_events WHERE attempt_id = ? ORDER BY sequence').all(attemptId).map((event: Record<string, unknown>) => ({ ...event, payload: JSON.parse(String(event.payload_json)) })), messages: this.db.prepare('SELECT * FROM follow_up_messages WHERE session_id = ? ORDER BY queued_at').all(String(attempt.session_id)) };
   }
-  startExecution(input: { task_id: string; employee_id: string; purpose: string; workspace_set: string[] }) {
+  startExecution(input: { task_id: string; employee_id: string; purpose: string; workspace_set: string[]; resolved_context?:Record<string,unknown> }) {
     const task = this.taskDetail(input.task_id); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
     const pendingDecision = this.pendingDecisionForTask(input.task_id); if (pendingDecision) throw new ServiceError('DECISION_APPROVAL_REQUIRED', 'Approve the current decision version before dispatching this task.', { decision_id: pendingDecision.decision_id, current_version: pendingDecision.current_version }, 409);
     if (task.status === 'complete' || this.getProject(String(task.project_id))?.status !== 'active') throw new ServiceError('TASK_NOT_EXECUTABLE', 'Reopen the task and project first.', {}, 409);
@@ -315,7 +431,8 @@ export class PixelDatabase {
         this.db.exec('COMMIT');
         throw new ServiceError(this.activeAttempt() ? 'WORKER_LEASE_CONFLICT' : 'WAITING_FOR_CAPACITY', reason, { capacity }, 409);
       }
-      this.db.prepare('INSERT INTO sessions VALUES (?, ?, ?, ?, ?, ?)').run(session_id, input.task_id, input.employee_id, redactCodexText(input.purpose), 'running', at);
+      const context=input.resolved_context||this.resolvedContext(input.employee_id,String(task.project_id),input.task_id,input.purpose);
+      this.db.prepare('INSERT INTO sessions (session_id,task_id,employee_id,purpose,continuation_state,created_at,resolved_context_json) VALUES (?,?,?,?,?,?,?)').run(session_id, input.task_id, input.employee_id, redactCodexText(input.purpose), 'running', at, JSON.stringify(context));
       this.db.prepare('INSERT INTO attempts (attempt_id, session_id, provider_thread_id, provider_turn_id, provider_item_id, provider_process_id, workspace_set_json, created_at, workspace_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(attempt_id, session_id, null, null, null, null, JSON.stringify(input.workspace_set), at, this.workspaceFingerprint(input.workspace_set));
       this.db.prepare('INSERT INTO worker_leases (lease_id, attempt_id, state, heartbeat_at, released_at, stop_reason, owner_token) VALUES (?, ?, ?, ?, ?, ?, ?)').run(lease_id, attempt_id, 'active', at, null, null, null);
       this.db.prepare('INSERT INTO capacity_slots VALUES (?, ?, ?, ?, NULL)').run(attempt_id, env.host_id, env.environment_id, 'reserved');

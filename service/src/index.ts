@@ -43,12 +43,15 @@ async function launchExecution(payload: Record<string, unknown>) {
   const readiness = await codexReadiness(); if (readiness.state !== 'ready') throw new ServiceError(readiness.state.toUpperCase(), readiness.detail, {}, 409);
   const guidance = db.guidanceForTask(String(task.project_id), taskId) as Array<{ content: string; provenance: string }>;
   const guidanceContext = guidance.length ? `\n\nApplicable project guidance (with provenance):\n${guidance.map((item) => `- ${item.content} [${item.provenance}]`).join('\n')}` : '';
+  const resolvedContext=db.resolvedContext(employeeId,String(task.project_id),taskId,prompt) as any;
+  const skillContext=resolvedContext.skills.length?`\n\nEmployee skill snapshot (instructions only; grants no permissions or access):\n${resolvedContext.skills.map((skill:any)=>`- ${skill.name}: ${skill.instructions}`).join('\n')}`:'';
+  const executionPrompt=prompt+skillContext+guidanceContext;
   // Revalidate after readiness's asynchronous probe; reserve synchronously before spawning.
   if (db.approvedPlanForTask(taskId)?.plan_id !== approvedPlan.plan_id) throw new ServiceError('PLAN_APPROVAL_REQUIRED', 'The plan changed during readiness; approve the current version.', {}, 409);
   db.measureHost();
-  const started = db.startExecution({ task_id: taskId, employee_id: employeeId, purpose: prompt + guidanceContext, workspace_set: folders.map((folder) => folder.canonical_path) });
+  const started = db.startExecution({ task_id: taskId, employee_id: employeeId, purpose: executionPrompt, workspace_set: folders.map((folder) => folder.canonical_path), resolved_context:resolvedContext });
   execution = new CodexExecution(db, String(started.attempt_id), dataDir);
-  try { await execution.start(folders.map((folder) => folder.canonical_path), prompt + guidanceContext); }
+  try { await execution.start(folders.map((folder) => folder.canonical_path), executionPrompt); }
   catch (error) { const failure = classifyCodexFailure(error); db.appendEvent(String(started.attempt_id), 'attempt.adapter_error', { code: failure.code, message: failure.message }); db.releaseExecution(String(started.attempt_id), failure.stopReason, 'lost'); execution = undefined; throw new ServiceError(failure.code, `${failure.message} The saved attempt was reconciled.`, {}, failure.status); }
   return db.executionDetail(String(started.attempt_id));
 }
@@ -119,9 +122,12 @@ const server = createServer(async (req, res) => {
     else if (req.method === 'GET' && url.pathname === '/api/v1/folders/browse') output = await browseDirectory(url.searchParams.get('path'));
     else if (req.method === 'POST' && url.pathname === '/api/v1/folders/native-select') output = { path: await chooseNativeDirectory() };
     else if (req.method === 'POST' && url.pathname === '/api/v1/folders/create') output = { path: await createDirectory(payload.parent_path, payload.name) };
+    else if (req.method === 'GET' && url.pathname === '/api/v1/staff/catalog') output = db.staffCatalog();
     else if (req.method === 'GET' && url.pathname === '/api/v1/staff') output = db.listEmployees();
-    else if (req.method === 'POST' && url.pathname === '/api/v1/staff') output = db.createEmployee(payload as { name: string; title?: string; color?: string });
-    else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+$/.test(url.pathname)) output = db.updateEmployee(url.pathname.split('/')[4], payload as { name?: string; title?: string; color?: string; active?: boolean });
+    else if (req.method === 'POST' && url.pathname === '/api/v1/staff') output = db.createEmployee(payload as { name: string; position_id?: string; character_id?: string });
+    else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+$/.test(url.pathname)) output = db.updateEmployee(url.pathname.split('/')[4], payload as { name?: string; position_id?: string; character_id?: string; active?: boolean });
+    else if (req.method === 'POST' && /^\/api\/v1\/staff\/[^/]+\/skills$/.test(url.pathname)) output = db.addEmployeeSkill(url.pathname.split('/')[4],payload as any);
+    else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+\/skills\/[^/]+$/.test(url.pathname)) { const parts=url.pathname.split('/'); output=db.setEmployeeSkill(parts[4],parts[6],Boolean(payload.enabled)); }
     else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+\/appearance$/.test(url.pathname)) output = db.updateAppearance(url.pathname.split('/')[4], payload as Record<string, string>);
     else if (req.method === 'POST' && url.pathname === '/api/v1/tasks') output = db.createTask(payload as { project_id: string; title: string; employee_id?: string; folder_ids: string[]; primary_folder_id: string });
     else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/complete$/.test(url.pathname)) output = db.completeTask(url.pathname.split('/')[4]);

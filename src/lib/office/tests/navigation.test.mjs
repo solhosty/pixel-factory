@@ -24,10 +24,10 @@ test('arrived and unreachable routes are distinct',()=>{
  assert.equal(gridRoute([1,2],[2,2],allowed),null);
 });
 
-test('stepped entrance excludes cut-away floor and stays reachable',()=>{
- assert.equal(officeFloor(2,18),false);
- assert.equal(officeFloor(17,19),false);
- const route=gridRoute([10,12],[9,19],officeFloor);
+test('curated Studio cutaways exclude walls while all workstation lanes stay reachable',()=>{
+ assert.equal(officeFloor(2,19),false);
+ assert.equal(officeFloor(21,20),false);
+ const route=gridRoute([11,13],[12,20],officeFloor);
  assert.ok(route?.length);
  assert.ok(route.every(point=>officeFloor(...point)));
 });

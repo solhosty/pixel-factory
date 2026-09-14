@@ -55,3 +55,7 @@ QA and source-scale deviations are detailed in `docs/execution/handoffs/1B-2026-
 - `runtime.ui.a-match.v1`: live CSS frames in `src/routes/+page.svelte` and original integer-grid rail/dock icons in `src/lib/ui/Icon.svelte`. Responsive navy outer frames, cream dialogue, moss choices, portrait and lower local-log/folder/unconnected-terminal dock. No generated UI image is stretched or shipped as a panel.
 
 This supersedes the prior small code-authored character as the active runtime candidate. All older files remain for provenance; no approval or E03 completion is implied.
+
+## Studio roster — September 14
+
+- `runtime.character.studio-roster.v1`: `static/assets/characters/studio-character-01/` through `studio-character-06/` provide six complete predefined runtime families. Every family has body/seated, four-direction six-frame walk, sleep, and portrait crops using the production renderer's flat magenta key. Identities 03–06 were created sequentially from the exact current production atlases; per-family prompts, source relationship, and SHA-256 values are recorded in adjacent `PROVENANCE.md` files. Atlas and crop validation pass. Served `/studio` review is implementation evidence, not user visual approval.

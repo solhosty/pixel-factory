@@ -1,6 +1,6 @@
 # Character identity contract — v2
 
-Status: `supersedes editable assembly for initial release; assets incomplete`
+Status: `supersedes editable assembly for initial release; six complete predefined families integrated; visual approval pending`
 
 Pixel Harness initially ships a curated roster of complete predefined character families. The user selects an unused identity and names the employee. Position, skills, execution location, and project assignment never determine appearance.
 
@@ -29,7 +29,11 @@ The first asset pass targets at least six genuinely distinct identities, not rec
 
 The assembled strip animates as one sprite: walk is six frames at 100 ms; idle selects a short, low-motion loop. A character never re-rolls during a session. Menu and speech-bubble micro-motion are separate UI behavior, not character animation.
 
-## Next asset pass
+## Current integrated roster — September 14
+
+`studio-character-01` through `studio-character-06` are complete production atlas families. Identities 03–06 use the current production atlas grid, dimensions, flat magenta renderer key, crop order, and foot anchors. Each family stores its generation provenance beside its source PNGs under `static/assets/characters/`.
+
+## Historical next asset pass
 
 Create a tiny complete vertical slice first: one base body, two hair layers, two tops, one accessory, and four facing/walk directions. Verify a compose → cache → walk loop on a checkerboard background before producing the wider kit.
 

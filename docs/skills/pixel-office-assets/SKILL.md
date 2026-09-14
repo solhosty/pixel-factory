@@ -13,6 +13,12 @@ The project is normally `/Users/hunter/Documents/hunter/pixel-harness`. Verify t
 
 Read [the asset contract](references/asset-contract.md) before generating or changing a sprite family. Use the imagegen skill for raster generation and image edits. Use code-native drawing for existing vector UI and procedural materials. Save final source atlases in the project, with generation prompts and provenance. Do not replace a functioning live room with a concept screenshot.
 
+## Preserve the current roster
+
+When the app already has employee characters, treat those exact characters as the identity source of truth. Before prompting image generation, inspect the served roster and persisted employee records, map every employee to the source atlas, crop boxes, palette, and existing states, and record which states are actually missing. Use each employee's current rendered sprites as identity-preserving image references for any extension. A room-level style reference alone is insufficient.
+
+Do not invent replacement coworkers, generate unrelated roster concepts, or change an employee's face, hair silhouette, skin tone, clothing, accessories, proportions, or palette while filling missing states. Generate one employee family at a time, inspect the first candidate against that employee in the live app, and stop before producing additional families if identity does not match. Never batch speculative character identities. Do not integrate or retain a candidate merely because it fits the general office style.
+
 ## Build an asset family
 
 Determine which existing family the asset must match. Inspect its actual raster output, not just its prompt. Keep the same head/body ratio, logical pixel scale, outline weight, perspective, material detail, and light direction. For a coworker, deliver the whole required state set with consistent identity and palette: four directional standing poses, six-frame walks in four directions, four seated directions, and four sleeping directions. A cropped standing sprite is not a seated pose. Do not mark a family complete if frames change head size, foot anchor, clothing, or facing.

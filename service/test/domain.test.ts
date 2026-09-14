@@ -13,7 +13,7 @@ function fixture() { const root = mkdtempSync(join(tmpdir(), 'pixel-harness-'));
 test('migrations are durable and project lifecycle never touches attached files', () => {
   const { root, db } = fixture(), repo = join(root, 'repo'), repoTwo = join(root, 'repo-two'); mkdirSync(repo); mkdirSync(repoTwo); writeFileSync(join(repo, 'kept.txt'), 'source survives'); const project = db.createProject('Atlas'); const folder = db.attachFolder(project.project_id, realpathSync(repo), repo), folderTwo = db.attachFolder(project.project_id, realpathSync(repoTwo), repoTwo); const employee = db.createEmployee({ name: 'Mina' }); const task = db.createTask({ project_id: project.project_id, title: 'Ship it', employee_id: employee.employee_id, folder_ids: [folder.folder_id, folderTwo.folder_id], primary_folder_id: folder.folder_id });
   assert.equal(task.folders.find((item: { folder_id: string }) => item.folder_id === folder.folder_id).is_primary, 1); db.setProjectStatus(project.project_id, 'archived'); assert.equal(db.getProject(project.project_id)?.status, 'archived'); assert.equal(readFileSync(join(repo, 'kept.txt'), 'utf8'), 'source survives'); db.close();
-  const reopened = new PixelDatabase(join(root, 'state.sqlite')); assert.equal(reopened.projectDetail(project.project_id).tasks.length, 1); reopened.setProjectStatus(project.project_id, 'active'); assert.equal(reopened.getProject(project.project_id)?.status, 'active'); assert.equal(reopened.updateEmployee(employee.employee_id, { title: 'Lead operator' }).title, 'Lead operator'); reopened.close();
+  const reopened = new PixelDatabase(join(root, 'state.sqlite')); assert.equal(reopened.projectDetail(project.project_id).tasks.length, 1); reopened.setProjectStatus(project.project_id, 'active'); assert.equal(reopened.getProject(project.project_id)?.status, 'active'); assert.equal(reopened.updateEmployee(employee.employee_id, { position_id: 'project-manager' }).title, 'Project Manager'); reopened.close();
 });
 
 test('folder aliases dedupe, overlap is rejected, and moved folders relink without changing identity', () => {
@@ -109,14 +109,14 @@ test('a Codex agent marker creates one durable inbox request for its own task', 
   const request = db.createAgentRequest(String(attempt.attempt_id), text, 'item_1'); assert.equal(request?.source, 'codex'); assert.equal(request?.summary, 'Choose the target color'); assert.equal(db.createAgentRequest(String(attempt.attempt_id), text, 'item_1'), undefined); assert.equal(db.listInbox('pending').length, 1); db.close();
 });
 
-test('office preference, editable appearance, sequential assignments, and simulated inbox persist', () => {
+test('office preference, predefined identity, sequential assignments, and simulated inbox persist', () => {
   const { root, db } = fixture(), repo = join(root, 'repo'); mkdirSync(repo);
   const project = db.createProject('Office'), folder = db.attachFolder(project.project_id, realpathSync(repo), repo), employee = db.createEmployee({ name: 'Rae' });
   assert.equal(db.preferences().map_treatment, 'warm');
   db.updatePreferences({ map_treatment: 'editorial', reduced_motion: true });
   assert.equal(db.preferences().map_treatment, 'editorial');
-  const edited = db.updateAppearance(employee.employee_id, { body: 'base-01', skin: 'umber-02', hair: 'crop-ink-01', top: 'shirt-cream-01', bottom: 'trousers-charcoal-01', accent: 'moss-01', accessory: 'glasses-round-01' });
-  assert.equal(edited.appearance_recipe.hair, 'crop-ink-01');
+  assert.throws(() => db.updateAppearance(employee.employee_id, {}), { code: 'PREDEFINED_CHARACTER_REQUIRED' });
+  assert.equal(employee.character_id, 'studio-character-01');
   const first = db.createTask({ project_id: project.project_id, title: 'First', employee_id: employee.employee_id, folder_ids: [folder.folder_id], primary_folder_id: folder.folder_id });
   assert.throws(() => db.createTask({ project_id: project.project_id, title: 'Too soon', employee_id: employee.employee_id, folder_ids: [folder.folder_id], primary_folder_id: folder.folder_id }), { code: 'EMPLOYEE_BUSY' });
   db.completeTask(first.task_id);

@@ -40,11 +40,11 @@ export function seatRoute(start: Point, socket: Point, allowed: Walkable): Point
   return route;
 }
 
-/** Stepped main-room footprint, sampled at the center of each floor cell. */
+/** Curated eight-workstation Studio footprint, sampled at each floor-cell center. */
 export function officeFloor(x: number, y: number): boolean {
-  if (x < 1 || x > 18 || y < 5 || y > 19) return false;
-  if (y >= 18 && x < 5) return false;
-  if (y >= 19 && x > 14) return false;
+  if (x < 1 || x > 22 || y < 5 || y > 20) return false;
+  if (y >= 19 && x < 4) return false;
+  if (y >= 20 && x > 19) return false;
   return true;
 }
 

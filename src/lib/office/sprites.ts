@@ -21,7 +21,7 @@ export function walkBox(direction:number, frame:number):SpriteBox {
 const atlasCache=new Map<string,Promise<HTMLImageElement>>();
 export function loadAtlas(file:string){
  let pending=atlasCache.get(file);
- if(!pending){pending=new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error(`Could not load sprite atlas: ${file}`));image.src=`/assets/studio-v3/${file}.png`;});atlasCache.set(file,pending);}
+ if(!pending){pending=new Promise<HTMLImageElement>((resolve,reject)=>{const image=new Image();image.onload=()=>resolve(image);image.onerror=()=>reject(new Error(`Could not load sprite atlas: ${file}`));image.src=file.startsWith('/')?file:`/assets/studio-v3/${file}.png`;});atlasCache.set(file,pending);}
  return pending;
 }
 /** Chroma-key and palette decoding are rendering operations; source atlases stay intact. */
@@ -57,6 +57,10 @@ export function spriteAtlas(character: boolean, kind: string, mode: string, hair
   if (['pendant','clock','painting','filing','lowShelf','wallShelf'].includes(kind)) return 'decor-atlas';
   return kind.startsWith('chair-') ? 'chairs' : kind.startsWith('desk-') ? 'side-desks' : 'furniture-atlas-v2';
  }
+ if(hair==='wavy-dark-03')return `/assets/characters/studio-character-03/${mode==='walking'?'walk':mode==='sleeping'?'sleep':'body'}.png`;
+ if(hair==='pixie-silver-04')return `/assets/characters/studio-character-04/${mode==='walking'?'walk':mode==='sleeping'?'sleep':'body'}.png`;
+ if(hair==='natural-curls-05')return `/assets/characters/studio-character-05/${mode==='walking'?'walk':mode==='sleeping'?'sleep':'body'}.png`;
+ if(hair==='side-part-ink-06')return `/assets/characters/studio-character-06/${mode==='walking'?'walk':mode==='sleeping'?'sleep':'body'}.png`;
  const base = mode === 'walking' ? 'walk-atlas' : mode === 'sleeping' ? 'sleep-body' : 'character-body';
  return hair === 'crop-ink-01' ? `${base}-ink` : base;
 }
