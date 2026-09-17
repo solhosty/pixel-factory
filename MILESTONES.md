@@ -192,6 +192,18 @@ Also prove the demo recipe launches the reviewed revisions, a corrected project 
 
 **First useful release:** milestones 0–3, including the visual foundation in 0A. One supported harness, one account, and sequential real work are enough to prove the central experience. It must already feel like an office, including the review meeting, with the approved art and animation quality present throughout.
 
+### Packet 3G — task workspace and multi-task ownership
+
+After 3F, make a task the primary workspace rather than treating the employee profile as the work view. **Tasks** is a board with To do, In progress, Done, and Cancelled lanes; opening any card opens that task's styled Codex conversation and a switchable raw **Session** terminal/history view for the same selected session. **Inbox** contains only cross-task items needing resolution. **Skills** is global. **Mailbox** and **Profile & skills** are separate employee-specific app tabs. The employee/desk is a way to select or begin work, not a second task dashboard: move employee actions, including room-presence controls, to its header and remove project disclosure and inactive-terminal filler from its body.
+
+An employee may own multiple active tasks. Each task retains an independent session, conversation, folder scope, rich context, history, terminal lease, plan/decision gates, and delivery state. This does not introduce concurrent execution: until milestone 5A, only one task may run at once and additional work must visibly queue or block under the existing capacity policy. Do not share terminal input, processes, workspace write ownership, or context between tasks.
+
+**Exit evidence:** one employee owns two active, independently scoped tasks; the board, Inbox, desk, and coworker entry points open their exact task workspaces; one task runs while the other remains visibly queued; reload preserves both; task completion, cancellation, reopening, and keyboard/reduced-motion navigation work. See [packet 3G](docs/execution/packets/3G.md).
+
+### Packet 3H — demo rehearsal and cinematic polish
+
+After 3G, prepare a product-faithful, resettable demo fixture and exercise it as if it will be filmed for a skeptical audience. Discover the strongest real moments through rehearsal first; then correct visible confusion, filler, framing, hierarchy, motion, responsive, and routing defects before selecting a recording narrative. The final runbook is an output of observed clean rehearsals, not a precommitted trailer script. Do not present invented execution as live Codex work or expand into providers, concurrency, delegation, or video production. See [packet 3H](docs/execution/packets/3H.md).
+
 ## Milestone 4 — multiple harnesses, accounts, and usage states
 
 Add the second harness through an explicit adapter contract. Onboard separately named account profiles, keep authentication in provider-supported credential locations, and prove account isolation before enabling concurrent use. Do not assume a separate Git checkout isolates credentials.

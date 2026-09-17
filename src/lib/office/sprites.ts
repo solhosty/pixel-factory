@@ -6,7 +6,7 @@ export const furniture: Record<string, SpriteBox> = {
  'desk-east':[213,67,398,835],'desk-west':[922,67,403,835],
  window:[26,92,425,371],bookcase:[491,28,334,446],notice:[879,76,330,399],
  desk:[20,492,451,363],writing:[492,526,353,330],coffee:[887,524,352,335],
- plant:[84,866,282,355],rug:[437,929,389,274],coat:[888,875,166,349],cat:[1030,1048,207,175]
+ plant:[84,866,282,355],rug:[437,929,389,274],coat:[888,875,166,349],cat:[1038,1048,207,175]
 };
 export const seated: Record<string, SpriteBox> = {
  south:[94,108,260,434],west:[491,108,271,434],east:[891,108,269,434],

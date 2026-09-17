@@ -1,0 +1,28 @@
+{
+  "packet": "3C",
+  "status": "complete",
+  "date": "2026-09-14",
+  "automated": {
+    "service_tests": "33/33 passed",
+    "service_typecheck": "passed",
+    "ui_typecheck": "0 errors, 0 warnings",
+    "office_tests": "8/8 passed",
+    "build": "passed"
+  },
+  "served_browser": {
+    "draft": "Created from Mina's coworker record with image, text file, pasted text, tagged project, and two selected folders; exact order survived reload.",
+    "shared_views": "The employee conversation and office-wide board opened the same canonical composer and persisted record.",
+    "assignment": "Changed owner from Mina to Rae; coworker view, board, task, and assignment history agreed.",
+    "dispatch": "Plan v1 was approved explicitly before launch. A genuine Codex 0.154.0 session received an image as localImage plus ordered text and tagged-record inputs, replied with the non-image proof and image color, and then released capacity.",
+    "session_inputs": ["localImage: blue-dot.png", "text file: notes.txt", "project snapshot", "employee snapshot", "task snapshot"],
+    "workspace_roots": ["/private/tmp/pixel-harness-3c-acceptance/one", "/private/tmp/pixel-harness-3c-acceptance/two"],
+    "responsive_access": "Keyboard project shortcut and the canonical composer were exercised with reduced motion at 390x844.",
+    "studio": "The served Studio was reviewed after removal of the improvised SVG desk and orphan chair; all furniture uses the supplied atlas assets and circulation stays clear."
+  },
+  "boundaries": [
+    "Saving or assigning did not launch a worker.",
+    "Inputs were session context, not implicit permission or extra filesystem scope.",
+    "Unavailable file references are retained with a visible reason and block launch until removed or resolved.",
+    "User visual approval remains separate from implementation acceptance."
+  ]
+}

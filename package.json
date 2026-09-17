@@ -2,17 +2,22 @@
   "name": "pixel-harness",
   "private": true,
   "version": "0.1.0",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=26"
   },
   "scripts": {
+    "prepare": "svelte-kit sync",
     "dev": "node scripts/dev.mjs",
     "dev:service": "tsx service/src/index.ts",
     "dev:ui": "vite dev",
     "build": "vite build",
     "check": "svelte-check --tsconfig ./tsconfig.json",
     "test": "tsx --test service/test/**/*.test.ts",
+    "demo:fixture": "tsx scripts/demo-fixture.ts --reset",
+    "demo:rehearse": "node --import tsx scripts/demo-browser-rehearsal.mjs",
+    "demo:rehearse:live": "node --import tsx scripts/demo-browser-rehearsal.mjs --live-native",
     "test:office": "node --test src/lib/office/tests/*.test.mjs",
     "check:service": "tsc --noEmit --module nodenext --moduleResolution nodenext --target es2023 --skipLibCheck service/src/*.ts service/test/*.ts"
   },

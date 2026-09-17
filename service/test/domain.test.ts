@@ -12,7 +12,7 @@ function fixture() { const root = mkdtempSync(join(tmpdir(), 'pixel-harness-'));
 
 test('migrations are durable and project lifecycle never touches attached files', () => {
   const { root, db } = fixture(), repo = join(root, 'repo'), repoTwo = join(root, 'repo-two'); mkdirSync(repo); mkdirSync(repoTwo); writeFileSync(join(repo, 'kept.txt'), 'source survives'); const project = db.createProject('Atlas'); const folder = db.attachFolder(project.project_id, realpathSync(repo), repo), folderTwo = db.attachFolder(project.project_id, realpathSync(repoTwo), repoTwo); const employee = db.createEmployee({ name: 'Mina' }); const task = db.createTask({ project_id: project.project_id, title: 'Ship it', employee_id: employee.employee_id, folder_ids: [folder.folder_id, folderTwo.folder_id], primary_folder_id: folder.folder_id });
-  assert.equal(task.folders.find((item: { folder_id: string }) => item.folder_id === folder.folder_id).is_primary, 1); db.setProjectStatus(project.project_id, 'archived'); assert.equal(db.getProject(project.project_id)?.status, 'archived'); assert.equal(readFileSync(join(repo, 'kept.txt'), 'utf8'), 'source survives'); db.close();
+  assert.equal(task.folders.find((item: { folder_id: string }) => item.folder_id === folder.folder_id).is_primary, 1); db.markProjectDone(project.project_id);db.setProjectStatus(project.project_id, 'archived'); assert.equal(db.getProject(project.project_id)?.status, 'archived'); assert.equal(readFileSync(join(repo, 'kept.txt'), 'utf8'), 'source survives'); db.close();
   const reopened = new PixelDatabase(join(root, 'state.sqlite')); assert.equal(reopened.projectDetail(project.project_id).tasks.length, 1); reopened.setProjectStatus(project.project_id, 'active'); assert.equal(reopened.getProject(project.project_id)?.status, 'active'); assert.equal(reopened.updateEmployee(employee.employee_id, { position_id: 'project-manager' }).title, 'Project Manager'); reopened.close();
 });
 
@@ -109,7 +109,7 @@ test('a Codex agent marker creates one durable inbox request for its own task', 
   const request = db.createAgentRequest(String(attempt.attempt_id), text, 'item_1'); assert.equal(request?.source, 'codex'); assert.equal(request?.summary, 'Choose the target color'); assert.equal(db.createAgentRequest(String(attempt.attempt_id), text, 'item_1'), undefined); assert.equal(db.listInbox('pending').length, 1); db.close();
 });
 
-test('office preference, predefined identity, sequential assignments, and simulated inbox persist', () => {
+test('office preference, predefined identity, multi-task ownership, and simulated inbox persist', () => {
   const { root, db } = fixture(), repo = join(root, 'repo'); mkdirSync(repo);
   const project = db.createProject('Office'), folder = db.attachFolder(project.project_id, realpathSync(repo), repo), employee = db.createEmployee({ name: 'Rae' });
   assert.equal(db.preferences().map_treatment, 'warm');
@@ -118,9 +118,9 @@ test('office preference, predefined identity, sequential assignments, and simula
   assert.throws(() => db.updateAppearance(employee.employee_id, {}), { code: 'PREDEFINED_CHARACTER_REQUIRED' });
   assert.equal(employee.character_id, 'studio-character-01');
   const first = db.createTask({ project_id: project.project_id, title: 'First', employee_id: employee.employee_id, folder_ids: [folder.folder_id], primary_folder_id: folder.folder_id });
-  assert.throws(() => db.createTask({ project_id: project.project_id, title: 'Too soon', employee_id: employee.employee_id, folder_ids: [folder.folder_id], primary_folder_id: folder.folder_id }), { code: 'EMPLOYEE_BUSY' });
-  db.completeTask(first.task_id);
   const second = db.createTask({ project_id: project.project_id, title: 'Second', employee_id: employee.employee_id, folder_ids: [folder.folder_id], primary_folder_id: folder.folder_id });
+  assert.equal(db.employeeDetail(employee.employee_id)?.active_assignments.length, 2);
+  db.completeTask(first.task_id);
   assert.equal(db.employeeDetail(employee.employee_id)?.assignment?.task_id, second.task_id);
   const notice = db.createSimulatedRequest({ project_id: project.project_id, employee_id: employee.employee_id, task_id: second.task_id });
   assert.equal(notice?.source, 'simulated'); assert.match(String(notice?.detail), /longer technical/); db.resolveRequest(notice!.request_id); assert.equal(db.listInbox('resolved').length, 1);

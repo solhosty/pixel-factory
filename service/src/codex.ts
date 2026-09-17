@@ -1,5 +1,5 @@
 import { spawn, execFile } from 'node:child_process';
-import { chmodSync, existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import net from 'node:net';
 import { randomBytes } from 'node:crypto';
 import { join } from 'node:path';
@@ -42,6 +42,7 @@ class UnixRpc {
 }
 
 export type Readiness = { state: 'ready' | 'missing_cli' | 'authentication_failed' | 'capability_missing'; detail: string; cli_version?: string };
+export type RichTurnInput = { type:'text'; text:string } | { type:'image'; data_base64:string; mime_type:string };
 export async function codexReadiness(): Promise<Readiness> {
   try { const version = (await command(['--version'])).stdout.trim(); try { await command(['login', 'status']); return { state: 'ready', detail: 'Codex CLI is installed and authenticated for local use.', cli_version: version }; } catch (error: any) { return { state: 'authentication_failed', detail: classifyCodexFailure(error).message, cli_version: version }; } }
   catch (error: any) { return { state: 'missing_cli', detail: redact(String(error.code === 'ENOENT' ? 'Codex CLI was not found on PATH.' : error.stderr || 'Codex CLI could not start.')) }; }
@@ -59,7 +60,7 @@ export class CodexExecution {
     if (message.method === 'process/exited' && message.params?.processHandle === this.processHandle) { this.db.appendEvent(this.attemptId, 'attempt.terminal_detached', { exit_code: message.params?.exitCode ?? null }); this.stopped = true; }
   }
   private async waitForSocket(path: string) { for (let attempt = 0; attempt < 80; attempt++) { if (existsSync(path)) { try { await new Promise<void>((resolve, reject) => { const socket = net.createConnection(path); socket.once('connect', () => { socket.end(); resolve(); }); socket.once('error', reject); }); return; } catch {} } await new Promise((resolve) => setTimeout(resolve, 100)); } throw new Error('Codex app-server did not create its private socket.'); }
-  async start(workspaces: string[], prompt: string, resumeThreadId?: string | null) {
+  async start(workspaces: string[], prompt: string, resumeThreadId?: string | null, richInputs:RichTurnInput[] = []) {
     this.runtimeDir = mkdtempSync(join(tmpdir(), 'ph-')); const socketPath = join(this.runtimeDir, 'c.sock');
     try {
       this.appServer = spawn('codex', ['app-server', '--listen', `unix://${socketPath}`], { stdio: ['ignore', 'pipe', 'pipe'] });
@@ -74,7 +75,9 @@ export class CodexExecution {
         : await this.rpc.call('thread/start', { cwd: workspaces[0], runtimeWorkspaceRoots: workspaces, sandbox: 'workspace-write', approvalPolicy: 'never', historyMode: 'paginated' });
       const threadId = thread.thread.id;
       this.db.setProviderIdentity(this.attemptId, { threadId }); this.db.appendEvent(this.attemptId, resumeThreadId ? 'attempt.resumed' : 'attempt.started', { workspace_count: workspaces.length }, threadId);
-      const turn = await this.rpc.call('turn/start', { threadId, input: [{ type: 'text', text: resumeThreadId ? `Continue after the Pixel Harness office was safely closed. ${prompt}` : prompt }] }); this.db.setProviderIdentity(this.attemptId, { threadId, turnId: turn.turn.id });
+      const userInput:any[]=[{ type:'text',text:resumeThreadId?`Continue after the Pixel Harness office was safely closed. ${prompt}`:prompt,text_elements:[] }];
+      if(!resumeThreadId)for(const [index,input] of richInputs.entries()){if(input.type==='text')userInput.push({type:'text',text:input.text,text_elements:[]});else{const extension=input.mime_type==='image/png'?'png':input.mime_type==='image/gif'?'gif':input.mime_type==='image/webp'?'webp':'jpg';const path=join(this.runtimeDir,`input-${index}.${extension}`);writeFileSync(path,Buffer.from(input.data_base64,'base64'),{mode:0o600});userInput.push({type:'localImage',path});}}
+      const turn = await this.rpc.call('turn/start', { threadId, input:userInput }); this.db.setProviderIdentity(this.attemptId, { threadId, turnId: turn.turn.id });
       await this.rpc.call('process/spawn', { command: ['codex', '--remote', `unix://${socketPath}`, 'resume', threadId, '--no-alt-screen'], cwd: workspaces[0], processHandle: this.processHandle, tty: true, streamStdin: true, streamStdoutStderr: true, size: { rows: 30, cols: 100 }, env: { TERM: 'xterm-256color' }, timeoutMs: 600_000 });
     } catch (error) { await this.disposeOwner(); throw error; }
   }
@@ -83,7 +86,7 @@ export class CodexExecution {
     if (!this.rpc || this.stopped) throw new ServiceError('TERMINAL_DETACHED', 'The active Codex session is not attached.', {}, 409);
     const threadId = this.db.executionDetail(this.attemptId).provider_thread_id as string | null;
     if (!threadId) throw new ServiceError('PROVIDER_THREAD_MISSING', 'The active Codex session has no provider thread identity.', {}, 409);
-    const turn = await this.rpc.call('turn/start', { threadId, input: [{ type: 'text', text: content }] });
+    const turn = await this.rpc.call('turn/start', { threadId, input: [{ type: 'text', text: content, text_elements:[] }] });
     this.db.setProviderIdentity(this.attemptId, { turnId: turn.turn?.id || null });
   }
   async resize(rows: number, cols: number) { if (!this.rpc || this.stopped) return; await this.rpc.call('process/resizePty', { processHandle: this.processHandle, size: { rows: Math.max(5, Math.min(120, rows)), cols: Math.max(20, Math.min(240, cols)) } }); }

@@ -1,7 +1,7 @@
 import { capacityPolicy, localMeasurement, type Measurement } from './capacity.js';
 import { DatabaseSync } from 'node:sqlite';
 import { redactCodexText } from './redaction.js';
-import { mkdirSync, readdirSync, statSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, statSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
@@ -213,6 +213,118 @@ const migrations = [
    ('security-engineer','threat-modeling'),
    ('security-engineer','security-verification');
  ` }
+, { id: '011_rich_task_composition_v1', classification: 'forward-only', sql: `
+ ALTER TABLE tasks ADD COLUMN brief_text TEXT NOT NULL DEFAULT '';
+ ALTER TABLE tasks ADD COLUMN task_instructions TEXT NOT NULL DEFAULT '';
+ CREATE TABLE task_inputs (
+   input_id TEXT PRIMARY KEY,
+   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+   kind TEXT NOT NULL CHECK(kind IN ('paste','image','file','file-reference','project','employee','task')),
+   label TEXT NOT NULL,
+   mime_type TEXT,
+   content_base64 TEXT,
+   source_path TEXT,
+   referenced_id TEXT,
+   provenance TEXT NOT NULL,
+   position INTEGER NOT NULL,
+   availability TEXT NOT NULL CHECK(availability IN ('available','unavailable')),
+   unavailable_reason TEXT,
+   created_at TEXT NOT NULL,
+   updated_at TEXT NOT NULL,
+   UNIQUE(task_id, position)
+ );
+ CREATE INDEX task_inputs_task_idx ON task_inputs(task_id, position);
+ ` }
+, { id: '012_demo_verification_v1', classification: 'forward-only', sql: `
+ CREATE TABLE demo_recipes (
+   recipe_id TEXT PRIMARY KEY,
+   task_id TEXT NOT NULL UNIQUE REFERENCES tasks(task_id),
+   setup_commands_json TEXT NOT NULL,
+   start_command TEXT NOT NULL,
+   readiness_command TEXT NOT NULL,
+   ports_json TEXT NOT NULL,
+   cleanup_command TEXT NOT NULL,
+   known_gaps TEXT NOT NULL,
+   created_at TEXT NOT NULL,
+   updated_at TEXT NOT NULL
+ );
+ CREATE TABLE demo_evidence (
+   evidence_id TEXT PRIMARY KEY,
+   recipe_id TEXT NOT NULL REFERENCES demo_recipes(recipe_id),
+   fingerprints_json TEXT NOT NULL,
+   checks_json TEXT NOT NULL,
+   preview_note TEXT NOT NULL,
+   status TEXT NOT NULL CHECK(status IN ('fresh','stale','accepted','failed')),
+   created_at TEXT NOT NULL,
+   accepted_at TEXT,
+   accepted_by TEXT,
+   stale_reason TEXT
+ );
+ CREATE INDEX demo_evidence_recipe_idx ON demo_evidence(recipe_id, created_at DESC);
+ ` }
+, { id: '013_delivery_rehearsal_v1', classification: 'forward-only', sql: `
+ CREATE TABLE task_delivery_overrides (
+   task_id TEXT PRIMARY KEY REFERENCES tasks(task_id),
+   delivery_mode TEXT NOT NULL CHECK(delivery_mode IN ('local','branch','pull_request','merge')),
+   destination TEXT NOT NULL DEFAULT '',
+   updated_at TEXT NOT NULL
+ );
+ CREATE TABLE delivery_attempts (
+   delivery_attempt_id TEXT PRIMARY KEY,
+   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+   project_id TEXT NOT NULL REFERENCES projects(project_id),
+   mode TEXT NOT NULL CHECK(mode IN ('local','branch','pull_request','merge')),
+   status TEXT NOT NULL CHECK(status IN ('pending','partial','delivered','failed')),
+   requested_at TEXT NOT NULL,
+   completed_at TEXT,
+   UNIQUE(task_id, requested_at)
+ );
+ CREATE TABLE delivery_outcomes (
+   delivery_attempt_id TEXT NOT NULL REFERENCES delivery_attempts(delivery_attempt_id),
+   folder_id TEXT NOT NULL REFERENCES local_folders(folder_id),
+   status TEXT NOT NULL CHECK(status IN ('pending','delivered','failed')),
+   destination TEXT NOT NULL DEFAULT '',
+   detail TEXT NOT NULL DEFAULT '',
+   updated_at TEXT NOT NULL,
+   PRIMARY KEY(delivery_attempt_id, folder_id)
+ );
+ CREATE TABLE project_release_states (
+   project_id TEXT PRIMARY KEY REFERENCES projects(project_id),
+   state TEXT NOT NULL CHECK(state IN ('active','delivered','done')),
+   updated_at TEXT NOT NULL,
+   done_at TEXT
+ );
+ INSERT INTO project_release_states SELECT project_id, 'active', strftime('%Y-%m-%dT%H:%M:%fZ','now'), NULL FROM projects;
+ ` }
+, { id: '014_delivery_git_execution_v1', classification: 'forward-only', sql: `
+ ALTER TABLE delivery_outcomes ADD COLUMN baseline_json TEXT NOT NULL DEFAULT '{}';
+ ` }
+, { id: '015_optional_workplace_skills_v1', classification: 'forward-only', sql: `
+ DELETE FROM position_default_skills;
+ CREATE TABLE workplace_skills (skill_id TEXT PRIMARY KEY REFERENCES skills(skill_id), source_url TEXT, added_at TEXT NOT NULL);
+ ` }
+, { id: '016_pre_execution_delivery_baselines_v1', classification: 'forward-only', sql: `
+ CREATE TABLE task_delivery_baselines (
+   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+   folder_id TEXT NOT NULL REFERENCES local_folders(folder_id),
+   baseline_json TEXT NOT NULL,
+   captured_at TEXT NOT NULL,
+   PRIMARY KEY(task_id, folder_id)
+ );
+ ` }
+, { id: '017_conversational_task_threads_v1', classification: 'forward-only', sql: `
+ CREATE TABLE task_thread_entries (
+   entry_id TEXT PRIMARY KEY,
+   task_id TEXT NOT NULL REFERENCES tasks(task_id),
+   author TEXT NOT NULL CHECK(author IN ('user','coworker','system')),
+   kind TEXT NOT NULL CHECK(kind IN ('objective','message','context','state')),
+   body TEXT NOT NULL,
+   source_ref TEXT,
+   created_at TEXT NOT NULL
+ );
+ CREATE INDEX task_thread_entries_task_idx ON task_thread_entries(task_id, created_at);
+ CREATE UNIQUE INDEX task_thread_entries_source_idx ON task_thread_entries(task_id, source_ref) WHERE source_ref IS NOT NULL;
+ ` }
 ] as const;
 
 const now = () => new Date().toISOString();
@@ -231,6 +343,12 @@ const fingerprintWorkspace = (roots: string[]) => {
   };
   for (const root of [...roots].sort()) walk(root);
   return hash.digest('hex');
+};
+const gitBaseline = (path: string) => {
+  try {
+    const run=(args:string[])=>execFileSync('git',['-C',path,...args],{encoding:'utf8',timeout:2000,stdio:['ignore','pipe','pipe']}).trim();
+    return { repository:true, head:run(['rev-parse','HEAD']), branch:run(['branch','--show-current']), status:run(['status','--porcelain=v1']) };
+  } catch { return { repository:false, head:null, branch:null, status:null }; }
 };
 export const CHARACTER_IDS = Array.from({ length: 6 }, (_, index) => `studio-character-${String(index + 1).padStart(2, '0')}`);
 const POSITION_IDS = ['designer','frontend-engineer','backend-engineer','fullstack-engineer','security-engineer','project-manager','marketing'] as const;
@@ -265,7 +383,7 @@ export class PixelDatabase {
     if (!name.trim()) throw new ServiceError('VALIDATION_ERROR', 'Project name is required');
     const project_id = id('prj'), at = now();
     this.db.exec('BEGIN IMMEDIATE');
-    try { this.db.prepare('INSERT INTO projects (project_id, name, status, created_at, archived_at) VALUES (?, ?, ?, ?, ?)').run(project_id, name.trim(), 'active', at, null); this.db.prepare('INSERT INTO project_delivery_settings VALUES (?, ?, ?, ?, ?)').run(project_id, null, 'review', '', at); this.db.exec('COMMIT'); }
+    try { this.db.prepare('INSERT INTO projects (project_id, name, status, created_at, archived_at) VALUES (?, ?, ?, ?, ?)').run(project_id, name.trim(), 'active', at, null); this.db.prepare('INSERT INTO project_delivery_settings VALUES (?, ?, ?, ?, ?)').run(project_id, null, 'review', '', at); this.db.prepare('INSERT INTO project_release_states VALUES (?, ?, ?, ?)').run(project_id, 'active', at, null); this.db.exec('COMMIT'); }
     catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.getProject(project_id)!;
   }
@@ -273,6 +391,7 @@ export class PixelDatabase {
   listProjects() { return this.db.prepare('SELECT * FROM projects ORDER BY created_at DESC').all() as unknown as ProjectRow[]; }
   setProjectStatus(projectId: string, status: 'active' | 'archived') {
     if (!this.getProject(projectId)) throw new ServiceError('NOT_FOUND', 'Project not found', { project_id: projectId }, 404);
+    if (status === 'archived' && this.releaseState(projectId).state !== 'done') throw new ServiceError('PROJECT_COMPLETION_REQUIRED', 'Mark the project done after its selected deliveries before archiving.', {}, 409);
     const at = now(); this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare('UPDATE projects SET status = ?, archived_at = ? WHERE project_id = ?').run(status, status === 'archived' ? at : null, projectId);
@@ -282,7 +401,16 @@ export class PixelDatabase {
     return this.getProject(projectId)!;
   }
   delivery(projectId: string) { return this.db.prepare('SELECT * FROM project_delivery_settings WHERE project_id = ?').get(projectId); }
-  updateDelivery(projectId: string, values: { default_branch?: string | null; delivery_mode?: string; notes?: string }) { if (!this.getProject(projectId)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); const old = this.delivery(projectId) as Record<string, SqlValue>; this.db.prepare('UPDATE project_delivery_settings SET default_branch = ?, delivery_mode = ?, notes = ?, updated_at = ? WHERE project_id = ?').run(values.default_branch ?? old.default_branch, values.delivery_mode ?? old.delivery_mode, values.notes ?? old.notes, now(), projectId); return this.delivery(projectId); }
+  releaseState(projectId:string) { return this.db.prepare('SELECT * FROM project_release_states WHERE project_id=?').get(projectId) as any; }
+  updateDelivery(projectId: string, values: { default_branch?: string | null; delivery_mode?: string; notes?: string }) { if (!this.getProject(projectId)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); const old = this.delivery(projectId) as Record<string, SqlValue>; const mode=String(values.delivery_mode ?? old.delivery_mode); if(!['local','branch','pull_request','merge','review'].includes(mode))throw new ServiceError('VALIDATION_ERROR','Choose local, branch, pull request, merge, or review delivery.'); this.db.prepare('UPDATE project_delivery_settings SET default_branch = ?, delivery_mode = ?, notes = ?, updated_at = ? WHERE project_id = ?').run(values.default_branch ?? old.default_branch, mode, values.notes ?? old.notes, now(), projectId); return this.delivery(projectId); }
+  taskDelivery(taskId:string){return this.db.prepare('SELECT * FROM task_delivery_overrides WHERE task_id=?').get(taskId) as any;}
+  setTaskDelivery(taskId:string,input:{delivery_mode:string;destination?:string}){const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);if(!['local','branch','pull_request','merge'].includes(input.delivery_mode))throw new ServiceError('VALIDATION_ERROR','Unsupported task delivery mode.');this.db.prepare('INSERT INTO task_delivery_overrides VALUES (?,?,?,?) ON CONFLICT(task_id) DO UPDATE SET delivery_mode=excluded.delivery_mode,destination=excluded.destination,updated_at=excluded.updated_at').run(taskId,input.delivery_mode,redactCodexText(String(input.destination||'')),now());return this.taskDelivery(taskId);}
+  private deliveryAttemptDetail(attemptId:string){const attempt=this.db.prepare('SELECT * FROM delivery_attempts WHERE delivery_attempt_id=?').get(attemptId) as any;if(!attempt)return undefined;return {...attempt,outcomes:this.db.prepare('SELECT * FROM delivery_outcomes WHERE delivery_attempt_id=? ORDER BY rowid').all(attemptId)};}
+  deliveryForTask(taskId:string){const rows=this.db.prepare('SELECT delivery_attempt_id FROM delivery_attempts WHERE task_id=? ORDER BY requested_at DESC').all(taskId) as any[];return {override:this.taskDelivery(taskId),attempts:rows.map(row=>this.deliveryAttemptDetail(row.delivery_attempt_id))};}
+  private captureTaskDeliveryBaselines(task:any){for(const folder of task.folders as any[])this.db.prepare('INSERT OR IGNORE INTO task_delivery_baselines VALUES (?,?,?,?)').run(task.task_id,folder.folder_id,JSON.stringify(gitBaseline(folder.canonical_path)),now());}
+  beginDelivery(taskId:string){const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);if(!task.demo?.evidence?.some((item:any)=>item.status==='accepted'))throw new ServiceError('DEMO_ACCEPTANCE_REQUIRED','Accept current demo evidence before recording delivery.',{},409);const delivery=this.taskDelivery(taskId)||this.delivery(String(task.project_id));const mode=String(delivery?.delivery_mode||'review');if(!['local','branch','pull_request','merge'].includes(mode))throw new ServiceError('DELIVERY_CONFIGURATION_REQUIRED','Set a local, branch, PR, or merge delivery mode first.',{},409);const unfinished=(this.deliveryForTask(taskId).attempts as any[]).find((item:any)=>['pending','partial','failed'].includes(item.status));const at=now(),attemptId=unfinished?.delivery_attempt_id||id('delivery');this.db.exec('BEGIN IMMEDIATE');try{if(!unfinished){this.db.prepare('INSERT INTO delivery_attempts VALUES (?,?,?,?,?,?,?)').run(attemptId,taskId,task.project_id,mode,'pending',at,null);for(const folder of task.folders){const captured=this.db.prepare('SELECT baseline_json FROM task_delivery_baselines WHERE task_id=? AND folder_id=?').get(taskId,folder.folder_id) as any;this.db.prepare('INSERT INTO delivery_outcomes (delivery_attempt_id,folder_id,status,destination,detail,updated_at,baseline_json) VALUES (?,?,?,?,?,?,?)').run(attemptId,folder.folder_id,'pending','', '',at,captured?.baseline_json||JSON.stringify(gitBaseline(folder.canonical_path)));}}this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}return this.deliveryAttemptDetail(attemptId)!;}
+  recordDeliveryOutcome(taskId:string,input:{delivery_attempt_id:string;folder_id:string;status:string;destination?:string;detail?:string}){const task=this.taskDetail(taskId);const attempt=this.deliveryAttemptDetail(input.delivery_attempt_id);if(!task||!attempt||attempt.task_id!==taskId)throw new ServiceError('NOT_FOUND','Delivery attempt not found',{},404);if(!['delivered','failed'].includes(input.status))throw new ServiceError('VALIDATION_ERROR','Outcome must be delivered or failed.');if(!task.folders.some((folder:any)=>folder.folder_id===input.folder_id))throw new ServiceError('INVALID_DELIVERY_FOLDER','The folder is not selected for this task.',{},409);const at=now();this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('UPDATE delivery_outcomes SET status=?,destination=?,detail=?,updated_at=? WHERE delivery_attempt_id=? AND folder_id=?').run(input.status,redactCodexText(String(input.destination||'')),redactCodexText(String(input.detail||'')),at,input.delivery_attempt_id,input.folder_id);const states=this.db.prepare('SELECT status FROM delivery_outcomes WHERE delivery_attempt_id=?').all(input.delivery_attempt_id) as any[];const status=states.every(item=>item.status==='delivered')?'delivered':states.some(item=>item.status==='delivered')?'partial':states.some(item=>item.status==='failed')?'failed':'pending';this.db.prepare('UPDATE delivery_attempts SET status=?,completed_at=? WHERE delivery_attempt_id=?').run(status,status==='delivered'?at:null,input.delivery_attempt_id);this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}if(this.deliveryAttemptDetail(input.delivery_attempt_id)!.status==='delivered')this.db.prepare("UPDATE project_release_states SET state='delivered',updated_at=? WHERE project_id=? AND state='active'").run(at,task.project_id);return this.deliveryAttemptDetail(input.delivery_attempt_id)!;}
+  markProjectDone(projectId:string){const project=this.projectDetail(projectId);if(!project)throw new ServiceError('NOT_FOUND','Project not found',{},404);const selected=project.tasks.filter((task:any)=>task.delivery?.override||this.delivery(projectId)?.delivery_mode!=='review');if(selected.some((task:any)=>!task.delivery.attempts.some((attempt:any)=>attempt.status==='delivered')))throw new ServiceError('PROJECT_DELIVERY_INCOMPLETE','Every selected delivery must be recorded before marking the project done.',{},409);const at=now();this.db.prepare("UPDATE project_release_states SET state='done',updated_at=?,done_at=? WHERE project_id=?").run(at,at,projectId);return this.releaseState(projectId);}
   listFolders(projectId: string) { return this.db.prepare('SELECT * FROM local_folders WHERE project_id = ? ORDER BY created_at').all(projectId) as unknown as FolderRow[]; }
   folderByPath(canonical: string) { return this.db.prepare('SELECT * FROM local_folders WHERE canonical_path = ?').get(canonical) as unknown as FolderRow | undefined; }
   attachFolder(projectId: string, canonical: string, display: string) {
@@ -296,9 +424,9 @@ export class PixelDatabase {
   staffCatalog() {
     const owned = new Map((this.db.prepare('SELECT character_id, employee_id FROM employees WHERE active = 1 AND character_id IS NOT NULL').all() as Array<{character_id:string;employee_id:string}>).map(row => [row.character_id,row.employee_id]));
     return {
-      positions: this.db.prepare('SELECT * FROM positions ORDER BY sort_order').all().map((position:any)=>({ ...position, default_skills:this.db.prepare('SELECT s.* FROM position_default_skills p JOIN skills s USING(skill_id) WHERE p.position_id = ? ORDER BY s.name').all(position.position_id) })),
-      skills: this.db.prepare("SELECT * FROM skills WHERE kind = 'built-in' ORDER BY name").all(),
-      characters: CHARACTER_IDS.map(character_id=>({ character_id, owner_employee_id:owned.get(character_id)||null, ready:true }))
+      positions: this.db.prepare('SELECT * FROM positions ORDER BY sort_order').all().map((position:any)=>({ ...position, default_skills:[] })),
+      skills: this.db.prepare('SELECT s.*, w.source_url FROM skills s JOIN workplace_skills w USING(skill_id) ORDER BY s.name').all(),
+      characters: CHARACTER_IDS.map(character_id=>({ character_id, owner_employee_id:owned.get(character_id)||null, ready:true, appearance_recipe:CHARACTER_RECIPES[character_id] }))
     };
   }
   private availableCharacter(characterId?: string) {
@@ -318,10 +446,12 @@ export class PixelDatabase {
   getEmployee(employeeId: string) { return this.db.prepare('SELECT * FROM employees WHERE employee_id = ?').get(employeeId); }
   employeeDetail(employeeId: string): Record<string, any> | undefined {
     const employee = this.getEmployee(employeeId) as Record<string, unknown> | undefined; if (!employee) return undefined;
-    const assignment = this.db.prepare(`SELECT a.*, t.title AS task_title, t.project_id, p.name AS project_name FROM assignments a JOIN tasks t ON t.task_id = a.task_id JOIN projects p ON p.project_id = t.project_id WHERE a.employee_id = ? AND a.ended_at IS NULL ORDER BY a.assigned_at DESC LIMIT 1`).get(employeeId);
+    const active_assignments = this.db.prepare(`SELECT a.*, t.title AS task_title, t.project_id, p.name AS project_name FROM assignments a JOIN tasks t ON t.task_id = a.task_id JOIN projects p ON p.project_id = t.project_id WHERE a.employee_id = ? AND a.ended_at IS NULL ORDER BY a.assigned_at DESC`).all(employeeId);
+    // `assignment` remains a compatibility alias; task ownership is plural in 3G.
+    const assignment = active_assignments[0];
     const history = this.db.prepare(`SELECT a.*, t.title AS task_title, p.name AS project_name FROM assignments a JOIN tasks t ON t.task_id = a.task_id JOIN projects p ON p.project_id = t.project_id WHERE a.employee_id = ? ORDER BY a.assigned_at DESC`).all(employeeId);
     const skills=this.db.prepare('SELECT s.*, es.enabled FROM employee_skills es JOIN skills s USING(skill_id) WHERE es.employee_id=? ORDER BY s.name').all(employeeId);
-    return { ...employee, environment: this.employeeEnvironment(employeeId), appearance_recipe: JSON.parse(String(employee.appearance_recipe || '{}')), skills, assignment, history };
+    return { ...employee, environment: this.employeeEnvironment(employeeId), appearance_recipe: JSON.parse(String(employee.appearance_recipe || '{}')), skills, assignment, active_assignments, history };
   }
   listEmployees() { return (this.db.prepare('SELECT employee_id FROM employees ORDER BY created_at').all() as Array<{ employee_id: string }>).map(({ employee_id }) => this.employeeDetail(employee_id)); }
   updateEmployee(employeeId: string, input: { name?: string; position_id?: string; character_id?: string; color?: string; active?: boolean }) {
@@ -346,27 +476,119 @@ export class PixelDatabase {
     const defaults=this.db.prepare('SELECT s.skill_id,s.name,s.instructions,s.kind FROM position_default_skills p JOIN skills s USING(skill_id) WHERE p.position_id=? ORDER BY s.name').all(employee.position_id);
     const selected=this.db.prepare('SELECT s.skill_id,s.name,s.instructions,s.kind FROM employee_skills es JOIN skills s USING(skill_id) WHERE es.employee_id=? AND es.enabled=1 ORDER BY s.name').all(employeeId);
     const guidance=this.guidanceForTask(projectId,taskId);
-    return { version:1, position:{position_id:employee.position_id,name:employee.title}, skills:[...defaults,...selected.filter((skill:any)=>!defaults.some((item:any)=>item.skill_id===skill.skill_id))], project_guidance:guidance, task_instructions:redactCodexText(taskInstructions), captured_at:now(), capability_note:'Skills are instructions only. Filesystem scope, tools, accounts, permissions, and execution environment remain independently enforced.' };
+    const task=this.taskDetail(taskId);
+    const resolveTagged=(item:any)=>{
+      if(item.kind==='project'){const project=this.getProject(item.referenced_id);return project?{type:'project',project_id:project.project_id,name:project.name,status:project.status,delivery:this.delivery(project.project_id)}:null;}
+      if(item.kind==='employee'){const person=this.employeeDetail(item.referenced_id);return person?{type:'employee',employee_id:person.employee_id,name:person.name,title:person.title,position_id:person.position_id,active:Boolean(person.active),environment:person.environment?{environment_id:person.environment.environment_id,name:person.environment.name,kind:person.environment.kind}:null}:null;}
+      if(item.kind==='task'){const tagged=this.taskDetail(item.referenced_id);return tagged?{type:'task',task_id:tagged.task_id,project_id:tagged.project_id,title:tagged.title,status:tagged.status,folder_ids:tagged.folders.map((folder:any)=>folder.folder_id),employee_id:tagged.assignments[0]?.employee_id||null}:null;}
+      return undefined;
+    };
+    return { version:3, position:{position_id:employee.position_id,name:employee.title}, skills:[...defaults,...selected.filter((skill:any)=>!defaults.some((item:any)=>item.skill_id===skill.skill_id))], project_guidance:guidance, task_brief:redactCodexText(String(task?.brief_text||'')), task_instructions:redactCodexText(String(task?.task_instructions||taskInstructions)), task_inputs:(task?.inputs||[]).map((item:any)=>({input_id:item.input_id,kind:item.kind,label:item.label,mime_type:item.mime_type,referenced_id:item.referenced_id,source_path:item.source_path,provenance:item.provenance,position:item.position,availability:item.availability,unavailable_reason:item.unavailable_reason,resolved_value:resolveTagged(item)})), captured_at:now(), capability_note:'Skills and task inputs are instructions and context only. Filesystem scope, tools, accounts, permissions, and execution environment remain independently enforced.' };
   }
-  createTask(input: { project_id: string; title: string; employee_id?: string; folder_ids: string[]; primary_folder_id: string }) { if (!input.title.trim()) throw new ServiceError('VALIDATION_ERROR', 'Task title is required'); if (!this.getProject(input.project_id)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); const uniqueFolders = [...new Set(input.folder_ids)]; if (!uniqueFolders.length || !uniqueFolders.includes(input.primary_folder_id)) throw new ServiceError('VALIDATION_ERROR', 'Select task folders and one primary folder'); for (const folderId of uniqueFolders) { const folder = this.db.prepare('SELECT * FROM local_folders WHERE folder_id = ?').get(folderId) as unknown as FolderRow | undefined; if (!folder || folder.project_id !== input.project_id) throw new ServiceError('INVALID_FOLDER_SELECTION', 'Each task folder must belong to this project', { folder_id: folderId }); if (folder.availability !== 'available') throw new ServiceError('FOLDER_UNAVAILABLE', 'Relink unavailable folders before assigning them', { folder_id: folderId }); }
-    if (input.employee_id && !this.getEmployee(input.employee_id)) throw new ServiceError('NOT_FOUND', 'Staff member not found', {}, 404);
-    if (input.employee_id && this.employeeDetail(input.employee_id)?.assignment) throw new ServiceError('EMPLOYEE_BUSY', 'Finish or archive the current assignment before assigning this employee again', { employee_id: input.employee_id }, 409);
-    const task_id = id('tsk'), at = now(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?)').run(task_id, input.project_id, input.title.trim(), 'planned', at, at); for (const folderId of uniqueFolders) this.db.prepare('INSERT INTO task_folders VALUES (?, ?, ?)').run(task_id, folderId, Number(folderId === input.primary_folder_id)); if (input.employee_id) this.db.prepare('INSERT INTO assignments VALUES (?, ?, ?, ?, ?)').run(id('asg'), input.employee_id, task_id, at, null); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.taskDetail(task_id)!;
+  private validateFolders(projectId:string,folderIds:string[],primaryFolderId:string){const unique=[...new Set(folderIds||[])];if(!unique.length||!unique.includes(primaryFolderId))throw new ServiceError('VALIDATION_ERROR','Select task folders and one primary folder');for(const folderId of unique){const folder=this.db.prepare('SELECT * FROM local_folders WHERE folder_id=?').get(folderId) as unknown as FolderRow|undefined;if(!folder||folder.project_id!==projectId)throw new ServiceError('INVALID_FOLDER_SELECTION','Each task folder must belong to this project',{folder_id:folderId});if(folder.availability!=='available')throw new ServiceError('FOLDER_UNAVAILABLE','Relink unavailable folders before selecting them',{folder_id:folderId});}return unique;}
+  private normalizeInputs(inputs:any[]){if(!Array.isArray(inputs)||inputs.length>50)throw new ServiceError('VALIDATION_ERROR','A task can contain up to 50 ordered inputs.');const allowed=new Set(['paste','image','file','file-reference','project','employee','task']);return inputs.map((raw,index)=>{const kind=String(raw.kind||'');if(!allowed.has(kind))throw new ServiceError('VALIDATION_ERROR','Unsupported task input kind.',{kind});const content=raw.content_base64==null?null:String(raw.content_base64);if(content&&content.length>14_000_000)throw new ServiceError('INPUT_TOO_LARGE','Each persisted attachment must be 10 MB or smaller.',{},413);const referenced=raw.referenced_id?String(raw.referenced_id):null;if(kind==='project'&&!this.getProject(referenced||''))throw new ServiceError('INVALID_CONTEXT_REFERENCE','Tagged project no longer exists.',{},409);if(kind==='employee'&&!this.getEmployee(referenced||''))throw new ServiceError('INVALID_CONTEXT_REFERENCE','Tagged employee no longer exists.',{},409);if(kind==='task'&&!this.taskDetail(referenced||''))throw new ServiceError('INVALID_CONTEXT_REFERENCE','Tagged task no longer exists.',{},409);const source=raw.source_path?String(raw.source_path):null;const unavailable=kind==='file-reference'&&(!source||!existsSync(source));return{input_id:String(raw.input_id||id('inp')),kind,label:String(raw.label||kind).trim(),mime:raw.mime_type?String(raw.mime_type):null,content,source,referenced,provenance:String(raw.provenance||'task composer'),position:index,availability:unavailable?'unavailable':'available',reason:unavailable?'Referenced file is missing or inaccessible':null};});}
+  private invalidatePlans(taskId:string){this.db.prepare("UPDATE plan_proposals SET status='superseded' WHERE task_id=? AND status IN ('pending','approved')").run(taskId);}
+  saveTaskDraft(taskId:string|undefined,input:{project_id?:string;title:string;employee_id?:string;folder_ids:string[];primary_folder_id:string;brief_text?:string;task_instructions?:string;inputs?:any[]}){
+    const existing=taskId?this.taskDetail(taskId):undefined;if(taskId&&!existing)throw new ServiceError('NOT_FOUND','Task not found',{},404);const projectId=String(input.project_id||existing?.project_id||'');if(!this.getProject(projectId))throw new ServiceError('NOT_FOUND','Project not found',{},404);const title=String(input.title||'').trim();if(!title)throw new ServiceError('VALIDATION_ERROR','Task title is required');const folders=this.validateFolders(projectId,input.folder_ids,input.primary_folder_id);const rows=this.normalizeInputs(input.inputs||[]);const employeeId=input.employee_id?String(input.employee_id):undefined;if(employeeId&&!this.getEmployee(employeeId))throw new ServiceError('NOT_FOUND','Staff member not found',{},404);const currentEmployee=existing?.assignments?.[0]?.employee_id;
+    const resultId=taskId||id('tsk'),at=now();this.db.exec('BEGIN IMMEDIATE');try{if(existing){this.db.prepare('UPDATE tasks SET title=?,brief_text=?,task_instructions=?,updated_at=? WHERE task_id=?').run(title,redactCodexText(String(input.brief_text||'')),redactCodexText(String(input.task_instructions||'')),at,resultId);this.db.prepare('DELETE FROM task_folders WHERE task_id=?').run(resultId);this.db.prepare('DELETE FROM task_inputs WHERE task_id=?').run(resultId);if(currentEmployee!==employeeId){this.db.prepare('UPDATE assignments SET ended_at=? WHERE task_id=? AND ended_at IS NULL').run(at,resultId);if(employeeId)this.db.prepare('INSERT INTO assignments VALUES (?,?,?,?,?)').run(id('asg'),employeeId,resultId,at,null);}this.invalidatePlans(resultId);}else{this.db.prepare('INSERT INTO tasks (task_id,project_id,title,status,created_at,updated_at,brief_text,task_instructions) VALUES (?,?,?,?,?,?,?,?)').run(resultId,projectId,title,'planned',at,at,redactCodexText(String(input.brief_text||'')),redactCodexText(String(input.task_instructions||'')));if(employeeId)this.db.prepare('INSERT INTO assignments VALUES (?,?,?,?,?)').run(id('asg'),employeeId,resultId,at,null);}for(const folderId of folders)this.db.prepare('INSERT INTO task_folders VALUES (?,?,?)').run(resultId,folderId,Number(folderId===input.primary_folder_id));for(const row of rows)this.db.prepare('INSERT INTO task_inputs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(row.input_id,resultId,row.kind,row.label,row.mime,row.content,row.source,row.referenced,row.provenance,row.position,row.availability,row.reason,at,at);this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}return this.taskDetail(resultId)!;
   }
+  createTask(input:{project_id:string;title:string;employee_id?:string;folder_ids:string[];primary_folder_id:string;brief_text?:string;task_instructions?:string;inputs?:any[]}){
+    const task=this.saveTaskDraft(undefined,input);
+    this.addThreadEntry(task.task_id,'user','objective',String(input.brief_text||input.title),`objective:${task.task_id}`);
+    return this.taskDetail(task.task_id)!;
+  }
+  private addThreadEntry(taskId:string,author:'user'|'coworker'|'system',kind:'objective'|'message'|'context'|'state',body:string,sourceRef?:string){
+    const content=redactCodexText(body.trim()); if(!content)return undefined;
+    const entryId=id('thread');
+    this.db.prepare('INSERT OR IGNORE INTO task_thread_entries VALUES (?,?,?,?,?,?,?)').run(entryId,taskId,author,kind,content,sourceRef||null,now());
+    return this.db.prepare('SELECT * FROM task_thread_entries WHERE entry_id=?').get(entryId);
+  }
+  addTaskThreadMessage(taskId:string,input:{body:string;save_as_team_agreement?:boolean}){
+    const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);
+    const body=String(input.body||'').trim();if(!body)throw new ServiceError('VALIDATION_ERROR','Write a message before sending it.');
+    this.db.exec('BEGIN IMMEDIATE');try{
+      this.addThreadEntry(taskId,'user','message',body);
+      if(input.save_as_team_agreement){const guidanceId=id('guide'),at=now();this.db.prepare('INSERT INTO guidance_records (guidance_id,project_id,scope,task_id,content,provenance,state,replaces_guidance_id,created_at,retired_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(guidanceId,task.project_id,'project',null,redactCodexText(body),`team-agreement:${taskId}`,'active',null,at,null);this.addThreadEntry(taskId,'system','state','Saved to Team agreements for this project.',`guidance:${guidanceId}`);}
+      this.db.exec('COMMIT');
+    }catch(error){this.db.exec('ROLLBACK');throw error;}
+    return this.taskThread(taskId)!;
+  }
+  taskThread(taskId:string):Record<string,any>|undefined{
+    const task=this.taskDetail(taskId);if(!task)return undefined;
+    const entries=this.db.prepare('SELECT * FROM task_thread_entries WHERE task_id=? ORDER BY created_at, rowid').all(taskId) as any[];
+    const requests=this.listInbox().filter((request:any)=>request.task_id===taskId);
+    const decisions=this.listDecisions(String(task.project_id)).filter((meeting:any)=>meeting.current?.affected_task_ids?.includes(taskId)||meeting.current?.gated_task_ids?.includes(taskId));
+    return {...task,thread:{entries,requests,decisions,team_agreements:this.db.prepare("SELECT * FROM guidance_records WHERE project_id=? AND scope='project' AND provenance LIKE 'team-agreement:%' ORDER BY created_at DESC").all(task.project_id),waiting_on:requests.find((request:any)=>request.status==='pending')?.blocks||decisions.find((meeting:any)=>meeting.status==='pending')?.current?.recommendation||(!this.approvedPlanForTask(taskId)?'Waiting for you to approve a plan.':null)}};
+  }
+  assignTask(taskId:string,employeeId?:string){
+    const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);if(task.status==='complete')throw new ServiceError('TASK_COMPLETE','Reopen the task before assigning it.',{},409);
+    if(employeeId&&!this.getEmployee(employeeId))throw new ServiceError('NOT_FOUND','Staff member not found',{},404);
+    const current=task.assignments[0];if(current?.employee_id===employeeId)return task;
+    const at=now();this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('UPDATE assignments SET ended_at=? WHERE task_id=? AND ended_at IS NULL').run(at,taskId);if(employeeId)this.db.prepare('INSERT INTO assignments VALUES (?,?,?,?,?)').run(id('asg'),employeeId,taskId,at,null);this.db.prepare('UPDATE tasks SET updated_at=? WHERE task_id=?').run(at,taskId);this.invalidatePlans(taskId);this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}return this.taskDetail(taskId)!;
+  }
+  updateTaskDraft(taskId:string,input:{title?:string;brief_text?:string;task_instructions?:string}){const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);const title=input.title===undefined?String(task.title):String(input.title).trim();if(!title)throw new ServiceError('VALIDATION_ERROR','Task title is required');this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('UPDATE tasks SET title=?,brief_text=?,task_instructions=?,updated_at=? WHERE task_id=?').run(title,redactCodexText(input.brief_text===undefined?String(task.brief_text):String(input.brief_text)),redactCodexText(input.task_instructions===undefined?String(task.task_instructions):String(input.task_instructions)),now(),taskId);this.invalidatePlans(taskId);this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}return this.taskDetail(taskId)!;}
+  replaceTaskInputs(taskId:string,inputs:any[]){
+    const task=this.taskDetail(taskId);if(!task)throw new ServiceError('NOT_FOUND','Task not found',{},404);const rows=this.normalizeInputs(inputs);const at=now();this.db.exec('BEGIN IMMEDIATE');try{this.db.prepare('DELETE FROM task_inputs WHERE task_id=?').run(taskId);for(const row of rows)this.db.prepare('INSERT INTO task_inputs VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(row.input_id,taskId,row.kind,row.label,row.mime,row.content,row.source,row.referenced,row.provenance,row.position,row.availability,row.reason,at,at);this.db.prepare('UPDATE tasks SET updated_at=? WHERE task_id=?').run(at,taskId);this.invalidatePlans(taskId);this.db.exec('COMMIT');}catch(error){this.db.exec('ROLLBACK');throw error;}return this.taskDetail(taskId)!;
+  }
+  refreshTaskInputs(taskId:string){for(const row of this.db.prepare("SELECT input_id,source_path FROM task_inputs WHERE task_id=? AND kind='file-reference'").all(taskId) as any[]){const available=Boolean(row.source_path&&existsSync(row.source_path));this.db.prepare('UPDATE task_inputs SET availability=?,unavailable_reason=?,updated_at=? WHERE input_id=?').run(available?'available':'unavailable',available?null:'Referenced file is missing or inaccessible',now(),row.input_id);}return this.taskDetail(taskId)!;}
   updateTaskFolders(taskId: string, input: { folder_ids: string[]; primary_folder_id: string }) {
     const task = this.taskDetail(taskId) as (Record<string, unknown> & { project_id: string }) | undefined; if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
-    const uniqueFolders = [...new Set(input.folder_ids)]; if (!uniqueFolders.length || !uniqueFolders.includes(input.primary_folder_id)) throw new ServiceError('VALIDATION_ERROR', 'Select task folders and one primary folder');
-    for (const folderId of uniqueFolders) { const folder = this.db.prepare('SELECT * FROM local_folders WHERE folder_id = ?').get(folderId) as unknown as FolderRow | undefined; if (!folder || folder.project_id !== task.project_id) throw new ServiceError('INVALID_FOLDER_SELECTION', 'Each task folder must belong to this project', { folder_id: folderId }); if (folder.availability !== 'available') throw new ServiceError('FOLDER_UNAVAILABLE', 'Relink unavailable folders before selecting them', { folder_id: folderId }); }
-    this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('DELETE FROM task_folders WHERE task_id = ?').run(taskId); for (const folderId of uniqueFolders) this.db.prepare('INSERT INTO task_folders VALUES (?, ?, ?)').run(taskId, folderId, Number(folderId === input.primary_folder_id)); this.db.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(now(), taskId); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; }
+    const uniqueFolders=this.validateFolders(task.project_id,input.folder_ids,input.primary_folder_id);
+    this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('DELETE FROM task_folders WHERE task_id = ?').run(taskId); for (const folderId of uniqueFolders) this.db.prepare('INSERT INTO task_folders VALUES (?, ?, ?)').run(taskId, folderId, Number(folderId === input.primary_folder_id)); this.db.prepare('UPDATE tasks SET updated_at = ? WHERE task_id = ?').run(now(), taskId);this.invalidatePlans(taskId); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.taskDetail(taskId)!;
   }
-  taskDetail(taskId: string): Record<string, any> | undefined { const task = this.db.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as Record<string, unknown> | undefined; if (!task) return undefined; return { ...task, folders: this.db.prepare('SELECT f.*, tf.is_primary FROM task_folders tf JOIN local_folders f ON f.folder_id = tf.folder_id WHERE tf.task_id = ?').all(taskId), assignments: this.db.prepare('SELECT a.*, e.name AS employee_name FROM assignments a JOIN employees e ON e.employee_id = a.employee_id WHERE a.task_id = ? AND a.ended_at IS NULL').all(taskId), plans: this.listPlansForTask(taskId), guidance: this.guidanceForTask(String(task.project_id), taskId) }; }
-  projectDetail(projectId: string) { const project = this.getProject(projectId); if (!project) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); return { ...project, delivery: this.delivery(projectId), folders: this.listFolders(projectId), tasks: this.db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC').all(projectId).map((task) => this.taskDetail((task as { task_id: string }).task_id)) }; }
+  private recipeDetail(taskId: string): any {
+    const recipe = this.db.prepare('SELECT * FROM demo_recipes WHERE task_id = ?').get(taskId) as Record<string, any> | undefined;
+    if (!recipe) return undefined;
+    const evidence = this.db.prepare('SELECT * FROM demo_evidence WHERE recipe_id = ? ORDER BY created_at DESC').all(recipe.recipe_id) as Record<string, any>[];
+    return { ...recipe, setup_commands: JSON.parse(recipe.setup_commands_json), ports: JSON.parse(recipe.ports_json), evidence: evidence.map((item) => ({ ...item, fingerprints: JSON.parse(item.fingerprints_json), checks: JSON.parse(item.checks_json) })) } as any;
+  }
+  private currentRecipeFingerprints(taskId: string) {
+    const task = this.taskDetail(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
+    return task.folders.map((folder: any) => {
+      let revision: string | null = null;
+      try { revision = execFileSync('git', ['-C', folder.canonical_path, 'rev-parse', 'HEAD'], { encoding: 'utf8', timeout: 2000, stdio: ['ignore', 'pipe', 'ignore'] }).trim(); } catch {}
+      return { folder_id: folder.folder_id, path: folder.canonical_path, revision, workspace_fingerprint: this.workspaceFingerprint([folder.canonical_path]) };
+    });
+  }
+  private refreshDemoEvidence(taskId: string) {
+    const recipe = this.recipeDetail(taskId); if (!recipe) return undefined;
+    const current = JSON.stringify(this.currentRecipeFingerprints(taskId));
+    for (const item of recipe.evidence) if (['fresh','accepted'].includes(item.status) && item.fingerprints_json !== current) this.db.prepare("UPDATE demo_evidence SET status='stale', stale_reason=? WHERE evidence_id=?").run('Repository revision or workspace fingerprint changed after this evidence.', item.evidence_id);
+    return this.recipeDetail(taskId);
+  }
+  saveDemoRecipe(taskId: string, input: { setup_commands?: unknown; start_command?: string; readiness_command?: string; ports?: unknown; cleanup_command?: string; known_gaps?: string }) {
+    if (!this.taskDetail(taskId)) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
+    const setup = Array.isArray(input.setup_commands) ? input.setup_commands.map(String).filter(Boolean) : [];
+    const ports = Array.isArray(input.ports) ? [...new Set(input.ports.map(Number))] : [];
+    if (!ports.every((port) => Number.isInteger(port) && port > 0 && port < 65536)) throw new ServiceError('VALIDATION_ERROR', 'Ports must be valid unique TCP ports.');
+    for (const field of ['start_command','readiness_command','cleanup_command'] as const) if (!String(input[field] || '').trim()) throw new ServiceError('VALIDATION_ERROR', `A ${field.replace('_',' ')} is required.`);
+    const existing = this.recipeDetail(taskId), at = now(), recipeId = existing?.recipe_id || id('demo');
+    this.db.prepare(`INSERT INTO demo_recipes VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(task_id) DO UPDATE SET setup_commands_json=excluded.setup_commands_json,start_command=excluded.start_command,readiness_command=excluded.readiness_command,ports_json=excluded.ports_json,cleanup_command=excluded.cleanup_command,known_gaps=excluded.known_gaps,updated_at=excluded.updated_at`).run(recipeId, taskId, JSON.stringify(setup), String(input.start_command).trim(), String(input.readiness_command).trim(), JSON.stringify(ports), String(input.cleanup_command).trim(), redactCodexText(String(input.known_gaps || '')), existing?.created_at || at, at);
+    if (existing) this.db.prepare("UPDATE demo_evidence SET status='stale', stale_reason=? WHERE recipe_id=? AND status IN ('fresh','accepted')").run('The demo recipe changed after this evidence.', recipeId);
+    return this.recipeDetail(taskId)!;
+  }
+  recordDemoEvidence(taskId: string, input: { checks?: unknown; preview_note?: string }) {
+    const recipe = this.refreshDemoEvidence(taskId); if (!recipe) throw new ServiceError('DEMO_RECIPE_REQUIRED', 'Save a demo recipe before recording evidence.', {}, 409);
+    const checks = Array.isArray(input.checks) ? input.checks.map((item: any) => ({ command: String(item.command || '').trim(), result: String(item.result || '').trim(), passed: Boolean(item.passed) })) : [];
+    if (!checks.length || checks.some((item) => !item.command || !item.result)) throw new ServiceError('VALIDATION_ERROR', 'Record each check command and its result.');
+    if (checks.some((item) => !item.passed)) throw new ServiceError('CHECK_FAILED', 'Failed checks cannot be recorded as fresh demo evidence.', { checks }, 409);
+    const evidenceId=id('evidence'), at=now(); this.db.prepare('INSERT INTO demo_evidence VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(evidenceId,recipe.recipe_id,JSON.stringify(this.currentRecipeFingerprints(taskId)),JSON.stringify(checks),redactCodexText(String(input.preview_note || 'Runnable preview reviewed locally.')), 'fresh',at,null,null,null);
+    return this.recipeDetail(taskId)!;
+  }
+  acceptDemoEvidence(taskId: string, evidenceId: string, acceptedBy = 'local user') {
+    const recipe=this.refreshDemoEvidence(taskId); if (!recipe) throw new ServiceError('DEMO_RECIPE_REQUIRED','Save a demo recipe before accepting evidence.',{},409); const evidence=recipe.evidence.find((item:any)=>item.evidence_id===evidenceId);
+    if (!evidence || evidence.status !== 'fresh') throw new ServiceError('DEMO_EVIDENCE_STALE','Only current fresh evidence can be accepted.',{status:evidence?.status},409);
+    this.db.prepare("UPDATE demo_evidence SET status='accepted',accepted_at=?,accepted_by=? WHERE evidence_id=?").run(now(),acceptedBy.trim()||'local user',evidenceId); return this.recipeDetail(taskId)!;
+  }
+  demoForTask(taskId: string) { return this.refreshDemoEvidence(taskId); }
+  taskDetail(taskId: string): Record<string, any> | undefined { const task = this.db.prepare('SELECT * FROM tasks WHERE task_id = ?').get(taskId) as Record<string, unknown> | undefined; if (!task) return undefined; return { ...task, folders: this.db.prepare('SELECT f.*, tf.is_primary FROM task_folders tf JOIN local_folders f ON f.folder_id = tf.folder_id WHERE tf.task_id = ? ORDER BY tf.rowid').all(taskId), inputs:this.db.prepare('SELECT * FROM task_inputs WHERE task_id=? ORDER BY position').all(taskId), assignments: this.db.prepare('SELECT a.*, e.name AS employee_name FROM assignments a JOIN employees e ON e.employee_id = a.employee_id WHERE a.task_id = ? AND a.ended_at IS NULL').all(taskId), plans: this.listPlansForTask(taskId), guidance: this.guidanceForTask(String(task.project_id), taskId), demo: this.recipeDetail(taskId), delivery: this.deliveryForTask(taskId) }; }
+  projectDetail(projectId: string) { const project = this.getProject(projectId); if (!project) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); return { ...project, release: this.releaseState(projectId), delivery: this.delivery(projectId), folders: this.listFolders(projectId), tasks: this.db.prepare('SELECT * FROM tasks WHERE project_id = ? ORDER BY created_at DESC').all(projectId).map((task) => this.taskDetail((task as { task_id: string }).task_id)) }; }
   completeTask(taskId: string) { const task = this.taskDetail(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404); const at = now(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare(`UPDATE tasks SET status = 'complete', updated_at = ? WHERE task_id = ?`).run(at, taskId); this.db.prepare('UPDATE assignments SET ended_at = ? WHERE task_id = ? AND ended_at IS NULL').run(at, taskId); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.taskDetail(taskId)!; }
+  cancelTask(taskId: string) { const task = this.taskDetail(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404); const at = now(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare(`UPDATE tasks SET status = 'cancelled', updated_at = ? WHERE task_id = ?`).run(at, taskId); this.db.prepare('UPDATE assignments SET ended_at = ? WHERE task_id = ? AND ended_at IS NULL').run(at, taskId); this.addThreadEntry(taskId,'system','state','Task cancelled by the user.'); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.taskDetail(taskId)!; }
   reopenTask(taskId: string) {
     const task = this.taskDetail(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
     const previous = this.db.prepare('SELECT assignment_id, employee_id FROM assignments WHERE task_id = ? ORDER BY assigned_at DESC LIMIT 1').get(taskId) as { assignment_id: string; employee_id: string } | undefined;
-    if (previous && this.employeeDetail(previous.employee_id)?.assignment) throw new ServiceError('EMPLOYEE_BUSY', 'The previously assigned colleague is currently working on another task', { employee_id: previous.employee_id }, 409);
     const at = now(); this.db.exec('BEGIN IMMEDIATE');
     try {
       this.db.prepare(`UPDATE tasks SET status = 'planned', updated_at = ? WHERE task_id = ?`).run(at, taskId);
@@ -442,8 +664,10 @@ export class PixelDatabase {
         const reason = capacity.occupied ? 'Waiting for capacity: an active or reserved session owns the sequential slot.' : `Waiting for capacity: ${capacity.reason}`;
         this.db.prepare('INSERT OR REPLACE INTO capacity_waits VALUES (?, ?, ?)').run(input.task_id, reason, at);
         this.db.exec('COMMIT');
-        throw new ServiceError(this.activeAttempt() ? 'WORKER_LEASE_CONFLICT' : 'WAITING_FOR_CAPACITY', reason, { capacity }, 409);
+        const active=this.activeAttempt() as any;
+        throw new ServiceError(active?.task_id===input.task_id ? 'WORKER_LEASE_CONFLICT' : 'WAITING_FOR_CAPACITY', reason, { capacity }, 409);
       }
+      this.captureTaskDeliveryBaselines(task);
       const context=input.resolved_context||this.resolvedContext(input.employee_id,String(task.project_id),input.task_id,input.purpose);
       this.db.prepare('INSERT INTO sessions (session_id,task_id,employee_id,purpose,continuation_state,created_at,resolved_context_json) VALUES (?,?,?,?,?,?,?)').run(session_id, input.task_id, input.employee_id, redactCodexText(input.purpose), 'running', at, JSON.stringify(context));
       this.db.prepare('INSERT INTO attempts (attempt_id, session_id, provider_thread_id, provider_turn_id, provider_item_id, provider_process_id, workspace_set_json, created_at, workspace_fingerprint) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)').run(attempt_id, session_id, null, null, null, null, JSON.stringify(input.workspace_set), at, this.workspaceFingerprint(input.workspace_set));
@@ -514,8 +738,10 @@ export class PixelDatabase {
     const request = this.listInbox('pending').find((r: any) => r.task_id === task.task_id) as any;
     const working = attempt && ['active','stopping'].includes(String(attempt.lease_state));
     const decision = this.pendingDecisionForTask(task.task_id);
-    const reason = task.status === 'complete' ? '' : decision ? `Decision approval required: ${decision.title} v${decision.current_version}.` : request?.blocks || (working ? '' : !this.approvedPlanForTask(task.task_id) ? 'Current plan approval required.' : !owner ? 'Assign a coworker.' : env?.kind === 'coder' ? 'Coder not connected; execution arrives in milestone 6.' : wait?.reason || '');
-    return { ...task, project_name: this.getProject(task.project_id)?.name, employee_id: owner?.employee_id || null, employee_name: owner ? this.getEmployee(owner.employee_id)?.name : null, environment: env, attempt, blocking_reason: reason, working_state: task.status === 'complete' ? 'complete' : working ? 'working' : reason ? (wait && !request && this.approvedPlanForTask(task.task_id) && env?.kind === 'local' ? 'waiting for capacity' : 'blocked') : 'planned' };
+    const lastEntry = this.db.prepare('SELECT body, created_at FROM task_thread_entries WHERE task_id = ? ORDER BY created_at DESC, rowid DESC LIMIT 1').get(task.task_id) as { body: string; created_at: string } | undefined;
+    const terminal = ['complete','cancelled'].includes(task.status);
+    const reason = terminal ? '' : decision ? `Decision approval required: ${decision.title} v${decision.current_version}.` : request?.blocks || (working ? '' : !this.approvedPlanForTask(task.task_id) ? 'Current plan approval required.' : !owner ? 'Assign a coworker.' : env?.kind === 'coder' ? 'Coder not connected; execution arrives in milestone 6.' : wait?.reason || '');
+    return { ...task, project_name: this.getProject(task.project_id)?.name, employee_id: owner?.employee_id || null, employee_name: owner ? this.getEmployee(owner.employee_id)?.name : null, environment: env, attempt, last_meaningful_update: lastEntry ? { summary: lastEntry.body, at: lastEntry.created_at } : { summary: task.title, at: task.updated_at }, blocking_reason: reason, working_state: task.status === 'complete' ? 'complete' : task.status === 'cancelled' ? 'cancelled' : working ? 'working' : reason ? (wait && !request && this.approvedPlanForTask(task.task_id) && env?.kind === 'local' ? 'waiting for capacity' : 'blocked') : 'planned' };
   }); }
   setProviderIdentity(attemptId: string, values: { threadId?: string | null; turnId?: string | null; itemId?: string | null; processId?: string | null }) { this.db.prepare('UPDATE attempts SET provider_thread_id = COALESCE(?, provider_thread_id), provider_turn_id = COALESCE(?, provider_turn_id), provider_item_id = COALESCE(?, provider_item_id), provider_process_id = COALESCE(?, provider_process_id) WHERE attempt_id = ?').run(values.threadId ?? null, values.turnId ?? null, values.itemId ?? null, values.processId ?? null, attemptId); }
   appendEvent(attemptId: string, kind: string, payload: Record<string, unknown>, providerEventId: string | null = null) { const previous = this.db.prepare('SELECT COALESCE(MAX(sequence), 0) AS sequence FROM attempt_events WHERE attempt_id = ?').get(attemptId) as { sequence: number }; if (providerEventId && this.db.prepare('SELECT 1 FROM attempt_events WHERE adapter = ? AND provider_event_id = ?').get('codex-app-server', providerEventId)) return; this.db.prepare('INSERT INTO attempt_events VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id('evt'), attemptId, previous.sequence + 1, now(), kind, redactCodexText(JSON.stringify(payload)), 'codex-app-server', providerEventId); }
@@ -541,6 +767,7 @@ export class PixelDatabase {
       this.db.prepare('INSERT INTO decision_meetings VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?)').run(decisionId, input.project_id, input.employee_id || null, input.kind, input.title.trim(), 'pending', at, at);
       this.db.prepare('INSERT INTO decision_versions VALUES (?, 1, ?, ?, NULL, ?, ?, ?, ?, NULL, NULL)').run(decisionId, redactCodexText(input.recommendation.trim()), JSON.stringify(input.options), JSON.stringify(affected), JSON.stringify(gated), 'current', at);
       const requestId = id('req'); this.db.prepare('INSERT INTO inbox_requests (request_id,project_id,employee_id,task_id,kind,summary,detail,blocks,source,status,created_at,resolved_at,decision_id,decision_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(requestId,input.project_id,input.employee_id||null,gated[0]||affected[0]||null,'decision',input.title.trim(),`Review ${input.kind} decision version 1.`,gated.length?`Approval gates ${gated.length} linked task(s).`:'No task is gated; linked work may continue.','codex','pending',at,null,decisionId,1);
+      for(const taskId of [...new Set([...affected,...gated])]) this.addThreadEntry(taskId,'coworker','state',`Decision requested: ${input.title.trim()} (version 1).`,`decision:${decisionId}:v1`);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.decisionDetail(decisionId)!;
@@ -556,6 +783,7 @@ export class PixelDatabase {
       this.db.prepare('INSERT INTO decision_versions VALUES (?,?,?,?,?,?,?,?,?,?,?)').run(decisionId,version,redactCodexText(input.recommendation.trim()),JSON.stringify(input.options),redactCodexText(input.feedback.trim()),JSON.stringify(affected),JSON.stringify(gated),'current',at,null,null);
       this.db.prepare("UPDATE inbox_requests SET status='resolved',resolved_at=? WHERE decision_id=? AND status='pending'").run(at,decisionId);
       this.db.prepare('INSERT INTO inbox_requests (request_id,project_id,employee_id,task_id,kind,summary,detail,blocks,source,status,created_at,resolved_at,decision_id,decision_version) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)').run(id('req'),meeting.project_id,meeting.employee_id||null,gated[0]||affected[0]||null,'decision',meeting.title,`Review revised ${meeting.kind} decision version ${version}.`,gated.length?`Approval gates ${gated.length} linked task(s).`:'No task is gated; linked work may continue.','codex','pending',at,null,decisionId,version);
+      for(const taskId of [...new Set([...affected,...gated])]) this.addThreadEntry(taskId,'coworker','state',`Decision revised: ${meeting.title} (version ${version}).`,`decision:${decisionId}:v${version}`);
       this.db.exec('COMMIT');
     } catch(error){this.db.exec('ROLLBACK');throw error;}
     return this.decisionDetail(decisionId)!;
@@ -570,6 +798,7 @@ export class PixelDatabase {
       this.db.prepare("UPDATE inbox_requests SET status='resolved',resolved_at=?,response_text=? WHERE decision_id=? AND status='pending'").run(at,`Approved version ${input.version} by ${approver}.`,decisionId);
       this.db.prepare("UPDATE guidance_records SET state='corrected',retired_at=? WHERE project_id=? AND state='active' AND provenance LIKE ?").run(at,meeting.project_id,`decision:${decisionId}:v%`);
       const guidanceId=id('guide'), content=`${meeting.title}: ${current.recommendation}`; this.db.prepare('INSERT INTO guidance_records (guidance_id,project_id,scope,task_id,content,provenance,state,replaces_guidance_id,created_at,retired_at) VALUES (?,?,?,?,?,?,?,?,?,?)').run(guidanceId,meeting.project_id,'project',null,redactCodexText(content),`decision:${decisionId}:v${input.version}`,'active',null,at,null);
+      for(const taskId of [...new Set([...current.affected_task_ids,...current.gated_task_ids])]) this.addThreadEntry(taskId,'system','state',`Decision ${meeting.title} version ${input.version} approved by ${approver}.`,`decision:${decisionId}:approved:${input.version}`);
       this.db.exec('COMMIT');
     } catch(error){this.db.exec('ROLLBACK');throw error;}
     return this.decisionDetail(decisionId)!;
@@ -586,18 +815,19 @@ export class PixelDatabase {
     const plan_id = id('plan'), at = now(); this.db.exec('BEGIN IMMEDIATE'); try {
       this.db.prepare(`UPDATE plan_proposals SET status = 'superseded' WHERE task_id = ? AND status IN ('pending', 'approved')`).run(input.task_id);
       this.db.prepare('INSERT INTO plan_proposals VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(plan_id, input.project_id, input.task_id, version, 'pending', redactCodexText(input.summary.trim()), JSON.stringify(input.milestones || []), JSON.stringify(input.acceptance || []), JSON.stringify(input.dependencies || []), at, null, null);
+      this.addThreadEntry(input.task_id,'coworker','state',`Plan version ${version} proposed: ${input.summary.trim()}`,`plan:${plan_id}:proposed`);
       this.db.exec('COMMIT');
     } catch (error) { this.db.exec('ROLLBACK'); throw error; }
     return this.planDetail(plan_id)!;
   }
   planDetail(planId: string): Record<string, any> | undefined { const plan = this.db.prepare('SELECT * FROM plan_proposals WHERE plan_id = ?').get(planId) as Record<string, unknown> | undefined; return plan ? { ...plan, milestones: JSON.parse(String(plan.milestones_json)), acceptance: JSON.parse(String(plan.acceptance_json)), dependencies: JSON.parse(String(plan.dependencies_json)) } : undefined; }
   listPlansForTask(taskId: string) { return (this.db.prepare('SELECT plan_id FROM plan_proposals WHERE task_id = ? ORDER BY version DESC').all(taskId) as Array<{ plan_id: string }>).map(({ plan_id }) => this.planDetail(plan_id)!); }
-  approvePlan(planId: string, approvedBy: string) { const plan = this.planDetail(planId); if (!plan) throw new ServiceError('NOT_FOUND', 'Plan not found', {}, 404); if (plan.status !== 'pending') throw new ServiceError('PLAN_NOT_APPROVABLE', 'Only the current pending plan can be approved.', { status: plan.status }, 409); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare(`UPDATE plan_proposals SET status = 'superseded' WHERE task_id = ? AND plan_id != ? AND status = 'approved'`).run(plan.task_id, planId); this.db.prepare(`UPDATE plan_proposals SET status = 'approved', approved_at = ?, approved_by = ? WHERE plan_id = ?`).run(now(), approvedBy.trim() || 'local user', planId); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.planDetail(planId)!; }
+  approvePlan(planId: string, approvedBy: string) { const plan = this.planDetail(planId); if (!plan) throw new ServiceError('NOT_FOUND', 'Plan not found', {}, 404); if (plan.status !== 'pending') throw new ServiceError('PLAN_NOT_APPROVABLE', 'Only the current pending plan can be approved.', { status: plan.status }, 409); const approver=approvedBy.trim() || 'local user'; this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare(`UPDATE plan_proposals SET status = 'superseded' WHERE task_id = ? AND plan_id != ? AND status = 'approved'`).run(plan.task_id, planId); this.db.prepare(`UPDATE plan_proposals SET status = 'approved', approved_at = ?, approved_by = ? WHERE plan_id = ?`).run(now(), approver, planId); this.addThreadEntry(String(plan.task_id),'system','state',`Plan version ${plan.version} approved by ${approver}.`,`plan:${planId}:approved`); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.planDetail(planId)!; }
   approvedPlanForTask(taskId: string) { return this.db.prepare(`SELECT plan_id FROM plan_proposals WHERE task_id = ? AND status = 'approved' ORDER BY approved_at DESC LIMIT 1`).get(taskId) as { plan_id: string } | undefined; }
   guidanceForTask(projectId: string, taskId: string) { return this.db.prepare(`SELECT * FROM guidance_records WHERE project_id = ? AND state = 'active' AND (scope = 'project' OR task_id = ?) ORDER BY CASE scope WHEN 'task' THEN 0 ELSE 1 END, created_at DESC`).all(projectId, taskId); }
   addGuidance(input: { project_id: string; task_id?: string; content: string; provenance: string; replaces_guidance_id?: string }) { if (!this.getProject(input.project_id)) throw new ServiceError('NOT_FOUND', 'Project not found', {}, 404); if (!input.content.trim() || !input.provenance.trim()) throw new ServiceError('VALIDATION_ERROR', 'Guidance needs content and provenance'); if (input.task_id) { const task = this.taskDetail(input.task_id) as { project_id: string } | undefined; if (!task || task.project_id !== input.project_id) throw new ServiceError('INVALID_GUIDANCE_SCOPE', 'Task guidance must belong to this project', {}, 409); } const guidance_id = id('guide'), at = now(); this.db.exec('BEGIN IMMEDIATE'); try { if (input.replaces_guidance_id) this.db.prepare(`UPDATE guidance_records SET state = 'corrected', retired_at = ? WHERE guidance_id = ? AND project_id = ?`).run(at, input.replaces_guidance_id, input.project_id); this.db.prepare('INSERT INTO guidance_records (guidance_id, project_id, scope, task_id, content, provenance, state, replaces_guidance_id, created_at, retired_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(guidance_id, input.project_id, input.task_id ? 'task' : 'project', input.task_id || null, redactCodexText(input.content.trim()), input.provenance.trim(), 'active', input.replaces_guidance_id || null, at, null); this.db.exec('COMMIT'); } catch (error) { this.db.exec('ROLLBACK'); throw error; } return this.db.prepare('SELECT * FROM guidance_records WHERE guidance_id = ?').get(guidance_id); }
   retireGuidance(guidanceId: string) { const result = this.db.prepare(`UPDATE guidance_records SET state = 'retired', retired_at = ? WHERE guidance_id = ? AND state = 'active'`).run(now(), guidanceId); if (!result.changes) throw new ServiceError('NOT_FOUND', 'Active guidance not found', {}, 404); return this.db.prepare('SELECT * FROM guidance_records WHERE guidance_id = ?').get(guidanceId); }
-  createRealRequest(input: { project_id: string; employee_id: string; task_id: string; kind: string; summary: string; detail: string; blocks: string; message_id?: string }) { const request_id = id('req'), at = now(); this.db.prepare('INSERT INTO inbox_requests (request_id, project_id, employee_id, task_id, kind, summary, detail, blocks, source, status, created_at, resolved_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(request_id, input.project_id, input.employee_id, input.task_id, input.kind, input.summary, redactCodexText(input.detail), input.blocks, 'codex', 'pending', at, null, input.message_id || null); return this.listInbox().find((request: any) => request.request_id === request_id); }
+  createRealRequest(input: { project_id: string; employee_id: string; task_id: string; kind: string; summary: string; detail: string; blocks: string; message_id?: string }) { const request_id = id('req'), at = now(); this.db.exec('BEGIN IMMEDIATE'); try { this.db.prepare('INSERT INTO inbox_requests (request_id, project_id, employee_id, task_id, kind, summary, detail, blocks, source, status, created_at, resolved_at, message_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)').run(request_id, input.project_id, input.employee_id, input.task_id, input.kind, input.summary, redactCodexText(input.detail), input.blocks, 'codex', 'pending', at, null, input.message_id || null); this.addThreadEntry(input.task_id,'coworker','state',`${input.summary}: ${input.blocks}`,`request:${request_id}`); this.db.exec('COMMIT'); } catch(error) { this.db.exec('ROLLBACK'); throw error; } return this.listInbox().find((request: any) => request.request_id === request_id); }
   createAgentRequest(attemptId: string, text: string, providerItemId?: string) {
     const match = text.match(/\[PIXEL_REQUEST\]\s*(clarification|approval|revision)\s*\|\s*([^|\n]{3,180})\s*\|\s*([^\n]{3,500})/i);
     if (!match) return undefined;

@@ -10,11 +10,11 @@ No framework, dependency versions, commands, API schema, or database schema have
 
 ## Sequence
 
-First useful release: **00 → 0A → 1A → 1B → 2A → 2B → 2C → 2D → 3A → 3B → 3C → 3D → 3E**.
+First useful release: **00 → 0A → 1A → 1B → 2A → 2B → 2C → 2D → 3A → 3B → 3C → 3D → 3E → 3F → 3G**. Packet 3F consolidates task records into one conversational thread. Packet 3G then makes that task thread the primary workspace, introduces multi-task employee ownership while execution remains sequential, and separates Tasks, Inbox, and Skills into their intended operational surfaces. **3H** is an opt-in demo-readiness packet after 3G: it rehearses and polishes real product moments before choosing a recording narrative.
 
 Later capabilities: **4A → 4B → 5A → 5B**. Optional Coder is **6**, after 5B. Office manager is **7**, after 5B; it does not require Coder.
 
-This preserves the existing product milestone numbering. Lettered packets are smaller handoff checkpoints. A parent milestone is complete only when every associated packet is complete. Sequential multiple sessions are in the first release; concurrent sessions, multiple accounts/providers, and Coder remain later. Do not expand that release boundary without a recorded decision.
+This preserves the existing product milestone numbering. Lettered packets are smaller handoff checkpoints. A parent milestone is complete only when every associated packet is complete. 3G permits multiple durable tasks under one employee but retains one active execution; concurrent sessions, multiple accounts/providers, and Coder remain later. Do not expand that release boundary without a recorded decision.
 
 ## Starting a session
 

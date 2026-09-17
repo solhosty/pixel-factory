@@ -12,12 +12,10 @@ function fixture() {
   return {db,project,a,b,first,second};
 }
 
-test('seven fixed repeatable positions carry curated default skills',()=>{
+test('seven fixed repeatable positions do not silently attach skills',()=>{
   const {db}=fixture(),catalog=db.staffCatalog();
   assert.deepEqual(catalog.positions.map((position:any)=>position.name),['Designer','Frontend Engineer','Backend Engineer','Fullstack Engineer','Security Engineer','Project Manager','Marketing']);
-  assert.ok(catalog.positions.every((position:any)=>position.default_skills.length===2));
-  const security=catalog.positions.find((position:any)=>position.position_id==='security-engineer');
-  assert.deepEqual(security.default_skills.map((skill:any)=>skill.name),['Security verification','Threat modeling']);
+  assert.ok(catalog.positions.every((position:any)=>position.default_skills.length===0));
   const first=db.createEmployee({name:'One',position_id:'designer',character_id:'studio-character-01'}), second=db.createEmployee({name:'Two',position_id:'designer',character_id:'studio-character-02'}), third=db.createEmployee({name:'Three',position_id:'security-engineer',character_id:'studio-character-03'});
   assert.equal(first.title,'Designer');assert.equal(second.position_id,'designer');assert.equal(third.title,'Security Engineer');db.close();
 });
@@ -37,7 +35,7 @@ test('session retains resolved skill and guidance snapshot after profile changes
   db.addGuidance({project_id:project.project_id,content:'Keep provenance visible.',provenance:'test'});
   const task=db.createTask({project_id:project.project_id,title:'Ship UI',employee_id:employee.employee_id,folder_ids:[a.folder_id,b.folder_id],primary_folder_id:a.folder_id});
   const started=db.startExecution({task_id:task.task_id,employee_id:employee.employee_id,purpose:'Implement only the approved UI.',workspace_set:[first,second]});
-  assert.deepEqual(started.resolved_context.skills.map((skill:any)=>skill.name),['Browser verification','Frontend implementation','Design systems review']);
+  assert.deepEqual(started.resolved_context.skills.map((skill:any)=>skill.name),['Design systems review']);
   assert.equal(started.resolved_context.project_guidance[0].content,'Keep provenance visible.');
   assert.equal(started.resolved_context.task_instructions,'Implement only the approved UI.');
   assert.match(started.resolved_context.capability_note,/permissions/);
@@ -47,7 +45,7 @@ test('session retains resolved skill and guidance snapshot after profile changes
 });
 
 test('six complete identities bound the active roster without changing eight-desk or worker capacity',()=>{
-  const {db}=fixture(),catalog=db.staffCatalog();assert.equal(catalog.characters.length,6);assert.ok(catalog.characters.every((item:any)=>item.ready));
+  const {db}=fixture(),catalog=db.staffCatalog();assert.equal(catalog.characters.length,6);assert.ok(catalog.characters.every((item:any)=>item.ready&&item.appearance_recipe?.hair));
   for(let index=0;index<6;index++)db.createEmployee({name:`Person ${index+1}`,character_id:`studio-character-${String(index+1).padStart(2,'0')}`});
   assert.throws(()=>db.createEmployee({name:'Seventh'}),{code:'STUDIO_CAPACITY_REACHED'});
   assert.throws(()=>db.createEmployee({name:'Unfinished identity',character_id:'studio-character-07'}),{code:'CHARACTER_IDENTITY_UNAVAILABLE'});

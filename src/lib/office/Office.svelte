@@ -9,6 +9,8 @@
  export let selectedId:string|undefined;
  export let active=true;
  export let poseOverrides:Record<string,string>={};
+ export let pendingByEmployee:Record<string,any>={};
+ export let openRequest:(request:any, person:any)=>void;
  let tile=32;
  export let navigate:(panel:string,person?:any)=>void;
  let mapElement:HTMLDivElement;
@@ -19,19 +21,19 @@
  let path:number[][]=[],held:string[]=[];
  const keys:Record<string,number[]>={ArrowUp:[0,-1],w:[0,-1],ArrowDown:[0,1],s:[0,1],ArrowLeft:[-1,0],a:[-1,0],ArrowRight:[1,0],d:[1,0]};
  const stepMs=240;
- type Fixture={type:string,x:number,y:number,w:number,h:number,solid?:boolean,layer?:number};
+ type Fixture={type:string,x:number,y:number,w:number,h:number,solid?:boolean,layer?:number,station?:number};
  const workstations=[
   {fixture:{type:'desk',x:.8,y:5.15,w:6.6,h:4.95,layer:85},seat:{x:3.5,y:9.2,direction:3,pose:'north',layer:102}},
+  {fixture:{type:'writing',x:10.55,y:9.3,w:5.05,h:4.95,layer:130},seat:{x:12.35,y:13.35,direction:3,pose:'north',layer:146}},
   {fixture:{type:'desk-east',x:16.25,y:5.25,w:2.5,h:4.6,layer:86},seat:{x:15.6,y:7.65,direction:2,pose:'east',layer:87}},
   {fixture:{type:'desk-west',x:2.8,y:11.8,w:2.8,h:5.15,layer:154},seat:{x:6,y:14.9,direction:1,pose:'west',layer:158}},
-  {fixture:{type:'writing',x:10.55,y:9.3,w:5.05,h:4.95,layer:130},seat:{x:12.35,y:13.45,direction:3,pose:'north',layer:146}},
   {fixture:{type:'desk-east',x:21.05,y:5.25,w:2.35,h:4.6,layer:86},seat:{x:20.35,y:7.65,direction:2,pose:'east',layer:87}},
   {fixture:{type:'desk-east',x:21.05,y:11.35,w:2.35,h:4.6,layer:148},seat:{x:20.35,y:13.75,direction:2,pose:'east',layer:149}},
   {fixture:{type:'writing',x:10.55,y:15.1,w:5.05,h:4.65,layer:188},seat:{x:12.35,y:19.05,direction:3,pose:'north',layer:203}},
   {fixture:{type:'desk-west',x:3.5,y:16.25,w:2.8,h:4.5,layer:199},seat:{x:6.65,y:19.05,direction:1,pose:'west',layer:204}}
  ];
  const fixtures:Fixture[]=[
-  ...workstations.map(station=>station.fixture),
+  ...workstations.map((station,index)=>({...station.fixture,station:index})),
   {type:'window',x:4.8,y:.35,w:5.5,h:4.25,solid:false,layer:42},
   {type:'bookcase',x:.65,y:.7,w:3.15,h:5.1,layer:55},
   {type:'notice',x:12.45,y:1.1,w:3.4,h:4.25,layer:53},
@@ -55,9 +57,12 @@
  const staffSlots=workstations.map(station=>station.seat);
  type Coworker={person:any,x:number,y:number,direction:number,pose:string,layer:number,mode:string,desired:string,frame:number,route:number[][],destination:number,pause:number,slot:number};
  let actors:Coworker[]=[];
+ let catMenu=false,catMood='',catTimer:number|undefined;
  $: actors=people.map((person,i)=>{
    const previous=actors.find(a=>a.person.employee_id===person.employee_id);
-   const mode=poseOverrides[person.employee_id] || (i===1?'walking':i===2?'sleeping':'seated');
+   // Coworkers stay at their desks by default. Deliberate player input is the
+   // sole source of walking, avoiding an ambient patrol loop.
+   const mode=poseOverrides[person.employee_id] || (i===3?'sleeping':'seated');
    if(previous&&previous.desired===mode)return {...previous,person};
    const slot=staffSlots[i];
    if(previous&&['walking','returning'].includes(previous.mode))return {...previous,person,desired:mode,mode:mode==='walking'?'walking':'returning',route:[],pause:0};
@@ -113,7 +118,7 @@
  }
  onMount(()=>{
   const viewport=mapElement.parentElement!;
-  const resize=new ResizeObserver(()=>{if(viewport.clientWidth){const compact=window.innerWidth<=1000;tile=compact?36:Math.min(viewport.clientWidth/24,viewport.clientHeight/22);requestAnimationFrame(()=>{if(compact)camera();else{viewport.scrollTop=0;viewport.scrollLeft=0;}});}});resize.observe(viewport);
+  const resize=new ResizeObserver(()=>{if(viewport.clientWidth){const compact=window.innerWidth<=1000;tile=Math.min(viewport.clientWidth/24,viewport.clientHeight/22);requestAnimationFrame(()=>{if(compact){viewport.scrollTop=0;viewport.scrollLeft=0;}else{viewport.scrollTop=0;viewport.scrollLeft=0;}});}});resize.observe(viewport);
   const media=matchMedia('(prefers-reduced-motion: reduce)');systemReduced=media.matches;
   const change=()=>{systemReduced=media.matches;stop();};media.addEventListener('change',change);
   const blur=()=>stop();window.addEventListener('blur',blur);
@@ -143,31 +148,33 @@
   const start=segment?[segment.toX,segment.toY]:[x,y];path=findPath(start,[a,b]);
   if(noMotion&&path.length){direction=a<x?1:a>x?2:b<y?3:0;x=a;y=b;drawX=x;drawY=y;path=[];segment=null;camera();}
  }
- function key(e:KeyboardEvent){const k=keys[e.key];if(k){e.preventDefault();if(!active||e.repeat)return;path=[];held=held.filter(key=>key!==e.key);held.push(e.key);if(!segment){const [dx,dy]=k;begin(x+dx,y+dy);}}else if(['p','r','i'].includes(e.key)){e.preventDefault();navigate(({p:'projects',r:'roster',i:'inbox'} as Record<string,string>)[e.key]);}}
+ function key(e:KeyboardEvent){const k=keys[e.key];if(k){e.preventDefault();if(!active||e.repeat)return;path=[];held=held.filter(key=>key!==e.key);held.push(e.key);if(!segment){const [dx,dy]=k;begin(x+dx,y+dy);}}else if(e.key.toLowerCase()==='i'){e.preventDefault();navigate('inbox');}}
  function release(e:KeyboardEvent){held=held.filter(key=>key!==e.key);}
  function click(e:MouseEvent){if(!active)return;mapElement.focus({preventScroll:true});const r=mapElement.getBoundingClientRect();walk(Math.floor((e.clientX-r.left)/tile),Math.floor((e.clientY-r.top)/tile));}
 
- function propClick(e:MouseEvent,type:string){
+ function propClick(e:MouseEvent,fixture:Fixture){
   const canvas=(e.currentTarget as HTMLElement).querySelector('canvas');
   const bounds=canvas?.getBoundingClientRect();
   const opaque=canvas&&bounds&&canvas.getContext('2d')!.getImageData(Math.max(0,Math.min(canvas.width-1,Math.floor((e.clientX-bounds.left)/bounds.width*canvas.width))),Math.max(0,Math.min(canvas.height-1,Math.floor((e.clientY-bounds.top)/bounds.height*canvas.height))),1,1).data[3]>100;
   e.stopPropagation();
-  if(opaque&&(type.includes('desk')||type==='coffee'))navigate('projects');
-  else if(opaque&&type==='notice')navigate('inbox');
-  else if(opaque&&type==='bookcase')navigate('roster');
-  else click(e);
+  if(!opaque)return;
+  if(fixture.station!==undefined){const coworker=actors.find(actor=>actor.slot===fixture.station);if(coworker)navigate('roster',coworker.person);return;}
+  if(fixture.type==='cat'){catMenu=!catMenu;return;}
+  click(e);
  }
+ function catAction(action:'pet'|'feed'){catMood=action==='pet'?'Purr…':'Crunch!';catMenu=true;window.clearTimeout(catTimer);catTimer=window.setTimeout(()=>{catMood='';catMenu=false;},reduced?1800:2600);}
 
 </script>
 <svelte:window onkeyup={release}/>
 <div class="viewport">
 <!-- svelte-ignore a11y_no_noninteractive_tabindex, a11y_no_noninteractive_element_interactions -->
-<div class="map" bind:this={mapElement} role="application" tabindex="0" aria-label="Company Studio map. Arrow keys walk; P projects, R roster, I inbox." onkeydown={key} onblur={()=>held=[]} onclick={click} style={`width:${width*tile}px;height:${height*tile}px;--tile:${tile}px;--floor:url('${art.floor}');--wall:url('${art.wall}')`}>
+<div class="map" bind:this={mapElement} role="application" tabindex="0" aria-label="Company Studio map. Arrow keys walk; I opens inbox." onkeydown={key} onblur={()=>held=[]} onclick={click} style={`width:${width*tile}px;height:${height*tile}px;--tile:${tile}px;--floor:url('${art.floor}');--wall:url('${art.wall}')`}>
   <div class="floor-plane"></div><svg class="room-outline" viewBox="0 0 24 22" preserveAspectRatio="none" aria-hidden="true"><path d="M.16 .16H23.84V19.44H20.64V20.84H18.5V21.84H8V20.84H3.56V18.84H.16Z"/></svg><div class="back-wall"></div><div class="left-wall"></div><div class="right-wall"></div><div class="baseboard"></div>
   {#each rugs as rug}<div class={`rug ${rug.tone}`} style={`left:${rug.x*tile}px;top:${rug.y*tile}px;width:${rug.w*tile}px;height:${rug.h*tile}px`}><Sprite kind="rug"/></div>{/each}
   <div class="window-light" aria-hidden="true"></div>
   <div class="window-panes" aria-hidden="true"><i></i><i></i><i></i></div>
-  {#each objects as o}<button class="prop" class:desk={o.type.includes('desk')||o.type==='writing'} aria-label={o.type==='notice'?'Mailbox':o.type.includes('desk')||o.type==='writing'?'Project desk':o.type} style={`left:${o.x*tile}px;top:${o.y*tile}px;width:${o.w*tile}px;height:${o.h*tile}px;z-index:${o.layer??Math.floor((o.y+o.h)*10)}`} onclick={(e)=>propClick(e,o.type)}><Sprite kind={o.type}/></button>{/each}
+  {#each objects as o}{#if (o.station!==undefined&&actors.some(actor=>actor.slot===o.station))||o.type==='cat'}<button class="prop" class:desk={o.station!==undefined} class:cat={o.type==='cat'} class:cat-active={o.type==='cat'&&catMood} aria-label={o.type==='cat'?'Visit the office cat':`Open ${actors.find(actor=>actor.slot===o.station)?.person.name}'s profile`} style={`left:${o.x*tile}px;top:${o.y*tile}px;width:${o.w*tile}px;height:${o.h*tile}px;z-index:${o.layer??Math.floor((o.y+o.h)*10)}`} onclick={(e)=>propClick(e,o)}><Sprite kind={o.type}/></button>{:else}<div class="prop decoration" aria-hidden="true" style={`left:${o.x*tile}px;top:${o.y*tile}px;width:${o.w*tile}px;height:${o.h*tile}px;z-index:${o.layer??Math.floor((o.y+o.h)*10)}`}><Sprite kind={o.type}/></div>{/if}{/each}
+  {#if catMenu}<div class="cat-card" role="status" style={`left:${16.1*tile}px;top:${12.85*tile}px`}><strong>{catMood||'Studio cat'}</strong>{#if !catMood}<span>Choose a gentle hello.</span><div><button onclick={()=>catAction('pet')}>Pet</button><button onclick={()=>catAction('feed')}>Feed</button></div>{:else}<span>{reduced?'The cat settles contentedly.':'The cat wiggles happily.'}</span>{/if}</div>{/if}
     <div class="pendant-light" aria-hidden="true"></div>
     {#each workstations as station}<div class="lamp-pool" style={`left:${(station.seat.x-2.2)*tile}px;top:${(station.fixture.y-.5)*tile}px`} aria-hidden="true"></div>{/each}
     {#each staffSlots as slot}<div class="station-chair" data-facing={slot.pose} style={`left:${(slot.x-.75)*tile}px;top:${(slot.y-.55)*tile}px;width:${1.65*tile}px;height:${1.75*tile}px;z-index:${slot.layer+(slot.pose==='north'?1:-1)}`}><Sprite kind={`chair-${slot.pose}`}/></div>{/each}
@@ -175,11 +182,13 @@
       <button class="person" class:selected={selectedId===actor.person.employee_id} data-mode={actor.mode} data-direction={actor.direction} data-frame={actor.frame} data-x={actor.x} data-y={actor.y} aria-label={`Talk to ${actor.person.name}, ${actor.mode} facing ${['south','west','east','north'][actor.direction]}`} style={`left:${(actor.x-.75)*tile}px;top:${(actor.y-1.7)*tile}px;width:${1.65*tile}px;height:${2.7*tile}px;z-index:${actor.layer}`} onclick={(e)=>{e.stopPropagation();navigate('roster',actor.person);}}>
         <Sprite character kind={actor.pose} mode={actor.mode==='returning'?'walking':actor.mode} direction={actor.direction} frame={actor.frame} recipe={actor.person.appearance_recipe}/>
         <span class="person-label">{actor.person.name}</span>
-        {#if actor.mode==='sleeping'||selectedId===actor.person.employee_id||actor.person.assignment}<span class="status-bubble"><StatusBubble kind={actor.mode==='sleeping'?'sleep':selectedId===actor.person.employee_id?'talk':'work'} reduced={noMotion}/></span>{/if}
+        {#if actor.mode==='sleeping'||selectedId===actor.person.employee_id||actor.person.assignment||actor.slot===2}<span class="status-bubble"><StatusBubble kind={actor.mode==='sleeping'?'sleep':selectedId===actor.person.employee_id||actor.slot===2?'talk':'work'} reduced={noMotion}/></span>{/if}
       </button>
+      {#if pendingByEmployee[actor.person.employee_id]}<button class="attention-bubble" title={pendingByEmployee[actor.person.employee_id].summary} aria-label={`Open ${actor.person.name}'s pending request: ${pendingByEmployee[actor.person.employee_id].summary}`} style={`left:${(actor.x+.34)*tile}px;top:${(actor.y-2.02)*tile}px;z-index:${actor.layer+2}`} onclick={(event)=>{event.stopPropagation();openRequest(pendingByEmployee[actor.person.employee_id],actor.person);}}>!</button>{/if}
     {/each}
   <div class="player" data-moving={moving} data-frame={frame} data-direction={direction} data-x={x} data-y={y} data-draw-x={drawX} data-draw-y={drawY} style={`left:${(drawX-.2)*tile}px;top:${(drawY-1.65)*tile}px;width:${1.5*tile}px;height:${2.65*tile}px;z-index:${Math.floor((drawY+1)*10)+1}`}>
-    <Sprite character mode="walking" {direction} frame={moving?frame:2} recipe={{skin:'golden-01',hair:'short-auburn-03',top:'overshirt-moss-01'}}/>
+    <Sprite character mode="walking" {direction} frame={moving?frame:2} recipe={{skin:'warm-medium-06',hair:'side-part-ink-06',top:'sweater-navy-06'}}/>
+    <span class="player-label">You</span>
 
   </div>
   <div class="ambient-shade" aria-hidden="true"></div>
@@ -194,9 +203,9 @@
 .back-wall{position:absolute;inset:0 0 auto;height:calc(var(--tile)*4.9);background:#b1a08b url('/assets/office-v2/wall-cream.png') repeat;background-size:calc(var(--tile)*5) calc(var(--tile)*4.9);border:calc(var(--tile)*.22) solid #624129;border-bottom:calc(var(--tile)*.16) solid #3c2d23;box-shadow:inset 0 10px 14px #30242f55,0 10px 12px #251d2244}
 .left-wall,.right-wall{position:absolute;top:0;bottom:0;width:calc(var(--tile)*.36);background:#493327;border:3px solid #785235;z-index:220;box-shadow:9px 0 12px #21191966}.right-wall{right:0;box-shadow:-9px 0 15px #21191966}.baseboard{position:absolute;bottom:0;left:0;right:0;height:calc(var(--tile)*.3);background:#65412a;border:3px solid #8d5d35;z-index:220}
 .rug{position:absolute;z-index:1;opacity:.9;filter:brightness(.82) saturate(.68);box-shadow:3px 5px 4px #251e2444}.rug.blue{filter:hue-rotate(120deg) saturate(.35) brightness(.72)}.rug.red{filter:hue-rotate(305deg) saturate(.55) brightness(.76)}
-.prop{position:absolute;border:0;padding:0;background:transparent;filter:drop-shadow(5px 10px 3px #251a2488);cursor:pointer}.prop:focus-visible{outline:2px dashed #f4d394;outline-offset:3px}.prop:hover{filter:drop-shadow(5px 10px 3px #251a2488) brightness(1.06)}
-.person,.player{position:absolute;background:none;border:0;padding:0;filter:drop-shadow(3px 5px 2px #201c2355)}.person{cursor:pointer}.player{pointer-events:none}.person-label{position:absolute;bottom:-12px;left:50%;transform:translateX(-50%);background:#252630;color:#eee4cb;padding:3px 7px;white-space:nowrap;font:11px monospace;opacity:0;border:1px solid #8d8064;z-index:2}.person:hover .person-label,.person:focus-visible .person-label{opacity:1}
-.status-bubble{position:absolute;right:-27%;top:-29%;width:calc(var(--tile)*1.12);height:calc(var(--tile)*1.12);pointer-events:none}.station-chair{position:absolute;pointer-events:none;filter:drop-shadow(3px 5px 2px #201c2355)}
+.prop{position:absolute;border:0;padding:0;background:transparent;filter:drop-shadow(5px 10px 3px #251a2488)}.prop:not(.decoration){cursor:pointer}.prop:focus-visible{outline:2px dashed #f4d394;outline-offset:3px}.prop:not(.decoration):hover{filter:drop-shadow(5px 10px 3px #251a2488) brightness(1.06)}.cat-active{animation:cat-purr 220ms ease-in-out 5}.cat-card{position:absolute;z-index:260;display:grid;gap:4px;min-width:120px;padding:7px 9px;background:#f0e5d1;border:2px solid #514750;box-shadow:3px 4px #211d23;color:#62554a;font:10px monospace}.cat-card strong{color:#6d7359}.cat-card span{font-size:9px}.cat-card div{display:flex;gap:4px}.cat-card button{border:1px solid #9c8a6d;background:#d8c49a;color:#4a4037;padding:3px 6px;font:inherit}@keyframes cat-purr{50%{transform:translateY(-2px) rotate(-1deg)}}
+.person,.player{position:absolute;background:none;border:0;padding:0;filter:drop-shadow(3px 5px 2px #201c2355)}.person{cursor:pointer}.player{pointer-events:none}.person-label,.player-label{position:absolute;top:-14px;left:50%;transform:translateX(-50%);background:#252630;color:#eee4cb;padding:3px 7px;white-space:nowrap;font:11px monospace;opacity:0;border:1px solid #8d8064;z-index:2}.person:hover .person-label,.person:focus-visible .person-label{opacity:1}.player-label{opacity:1;background:#596f4e;border-color:#b9c992;color:#fff8e4}
+.status-bubble{position:absolute;right:-27%;top:-29%;width:calc(var(--tile)*1.12);height:calc(var(--tile)*1.12);pointer-events:none}.attention-bubble{position:absolute;display:grid;place-items:center;width:calc(var(--tile)*.88);height:calc(var(--tile)*.88);padding:0;border:2px solid #4b3030;background:#c96c50;color:#fff5df;font:700 calc(var(--tile)*.55) monospace;box-shadow:2px 3px #2b2025;cursor:pointer;animation:attention-pop 900ms ease-in-out infinite}.attention-bubble:hover,.attention-bubble:focus-visible{background:#df8463;outline:2px solid #f4d394;outline-offset:3px}.station-chair{position:absolute;pointer-events:none;filter:drop-shadow(3px 5px 2px #201c2355)}@keyframes attention-pop{50%{transform:translateY(-2px)}}
 .window-light{position:absolute;left:calc(var(--tile)*5.05);top:calc(var(--tile)*4.2);width:calc(var(--tile)*4.9);height:calc(var(--tile)*8);background:linear-gradient(180deg,#ffcb7844,transparent);pointer-events:none;z-index:2;mix-blend-mode:screen}
 .window-panes{position:absolute;left:calc(var(--tile)*5.05);top:calc(var(--tile)*4.2);width:calc(var(--tile)*4.9);height:calc(var(--tile)*7.5);display:flex;gap:calc(var(--tile)*.16);padding:0 calc(var(--tile)*.13);z-index:3;pointer-events:none;mask-image:linear-gradient(#000b 0%,#000 35%,#0007 75%,transparent)}.window-panes i{display:block;flex:1;background:linear-gradient(180deg,#ffd38b55 0%,#ffd38b66 31%,#79522a33 31%,#79522a33 34%,#ffce7b88 34%,#f3b35c77 67%,#79522a22 67%,#79522a22 70%,#efad5255 70%);border-top:calc(var(--tile)*.08) solid #a87b4922}
 .pendant-light{position:absolute;left:calc(var(--tile)*2.35);top:calc(var(--tile)*1.5);width:calc(var(--tile)*3.2);height:calc(var(--tile)*3.7);z-index:40;pointer-events:none;background:radial-gradient(ellipse at 50% 0,#ffcd7788,transparent 72%);mix-blend-mode:screen}

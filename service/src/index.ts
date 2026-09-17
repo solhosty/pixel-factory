@@ -1,11 +1,12 @@
 import { createServer, IncomingMessage, ServerResponse } from 'node:http';
 import { randomBytes, randomUUID } from 'node:crypto';
-import { existsSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { existsSync, readFileSync } from 'node:fs';
+import { extname, resolve } from 'node:path';
 import { PixelDatabase } from './database.js';
 import { browseDirectory, canonicalDirectory, createDirectory, chooseNativeDirectory } from './folders.js';
 import { ServiceError } from './types.js';
-import { CodexExecution, classifyCodexFailure, codexReadiness } from './codex.js';
+import { CodexExecution, classifyCodexFailure, codexReadiness, type RichTurnInput } from './codex.js';
+import { executeDelivery } from './delivery.js';
 
 const host = '127.0.0.1', port = Number(process.env.PIXEL_HARNESS_SERVICE_PORT || 4318);
 const uiOrigin = process.env.PIXEL_HARNESS_UI_ORIGIN || 'http://127.0.0.1:5173';
@@ -30,9 +31,22 @@ function authorize(req: IncomingMessage) {
   return origin;
 }
 async function refreshAvailability(projectId: string) { for (const folder of db.listFolders(projectId)) { if (!existsSync(folder.canonical_path)) db.setFolderAvailability(folder.folder_id, 'unavailable', 'Path no longer exists'); else { try { await canonicalDirectory(folder.canonical_path); db.setFolderAvailability(folder.folder_id, 'available'); } catch { db.setFolderAvailability(folder.folder_id, 'unavailable', 'Path cannot be resolved'); } } } }
+function mimeForPath(path:string){const extension=extname(path).toLowerCase();return extension==='.png'?'image/png':extension==='.jpg'||extension==='.jpeg'?'image/jpeg':extension==='.gif'?'image/gif':extension==='.webp'?'image/webp':['.txt','.md','.csv','.json','.js','.ts','.svelte','.html','.css','.xml','.yaml','.yml','.log'].includes(extension)?'text/plain':'application/octet-stream';}
+function richTurnInputs(task:any,resolvedContext:any):RichTurnInput[]{
+  const output:RichTurnInput[]=[];
+  for(const item of task.inputs as any[]){
+    if(['project','employee','task'].includes(item.kind)){const snapshot=resolvedContext.task_inputs.find((value:any)=>value.input_id===item.input_id)?.resolved_value;output.push({type:'text',text:`Tagged ${item.kind} context [${item.input_id}] ${item.label}:\n${JSON.stringify(snapshot,null,2)}`});continue;}
+    const mime=String(item.mime_type||(item.source_path?mimeForPath(item.source_path):'text/plain'));
+    const bytes=item.source_path?readFileSync(item.source_path):Buffer.from(String(item.content_base64||''),'base64');
+    if(mime.startsWith('image/')){output.push({type:'image',data_base64:bytes.toString('base64'),mime_type:mime});continue;}
+    if(mime.startsWith('text/')||['application/json','application/xml','application/javascript'].includes(mime)){output.push({type:'text',text:`Attached ${item.kind} [${item.input_id}] ${item.label}:\n${bytes.toString('utf8')}`});continue;}
+    throw new ServiceError('TASK_INPUT_UNSUPPORTED',`Remove or replace unsupported input “${item.label}”. Pixel Harness currently delivers images and text files explicitly.`,{input_id:item.input_id,mime_type:mime},409);
+  }
+  return output;
+}
 async function launchExecution(payload: Record<string, unknown>) {
   const taskId = String(payload.task_id || ''), employeeId = String(payload.employee_id || '');
-  const task = db.taskDetail(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
+  const task = db.refreshTaskInputs(taskId); if (!task) throw new ServiceError('NOT_FOUND', 'Task not found', {}, 404);
   const approvedPlan = db.approvedPlanForTask(taskId);
   if (!approvedPlan || String(payload.plan_id || '') !== approvedPlan.plan_id) throw new ServiceError('PLAN_APPROVAL_REQUIRED', 'Approve the current plan version before dispatching this task.', { task_id: taskId, approved_plan_id: approvedPlan?.plan_id || null }, 409);
   const prompt = String(payload.prompt || '').trim() || `A Pixel Harness terminal session is ready for the task "${String(task.title)}". Do not inspect or modify files yet. Reply briefly that you are ready for the user's instructions.`;
@@ -40,18 +54,24 @@ async function launchExecution(payload: Record<string, unknown>) {
   if (folders.length < 2) throw new ServiceError('MULTI_FOLDER_REQUIRED', 'This Codex execution needs two selected task folders before launch.', { folder_count: folders.length }, 409);
   const unavailable = folders.filter((folder) => folder.availability !== 'available' || !existsSync(folder.canonical_path));
   if (unavailable.length) throw new ServiceError('FOLDER_UNAVAILABLE', 'Relink all selected folders before launching.', { folders: unavailable.map((folder) => folder.canonical_path) }, 409);
+  const unavailableInputs=(task.inputs as any[]).filter((item)=>item.availability!=='available');
+  if(unavailableInputs.length)throw new ServiceError('TASK_INPUT_UNAVAILABLE','Resolve or remove unavailable task inputs before launch.',{inputs:unavailableInputs.map(item=>({input_id:item.input_id,label:item.label,reason:item.unavailable_reason}))},409);
   const readiness = await codexReadiness(); if (readiness.state !== 'ready') throw new ServiceError(readiness.state.toUpperCase(), readiness.detail, {}, 409);
   const guidance = db.guidanceForTask(String(task.project_id), taskId) as Array<{ content: string; provenance: string }>;
   const guidanceContext = guidance.length ? `\n\nApplicable project guidance (with provenance):\n${guidance.map((item) => `- ${item.content} [${item.provenance}]`).join('\n')}` : '';
   const resolvedContext=db.resolvedContext(employeeId,String(task.project_id),taskId,prompt) as any;
   const skillContext=resolvedContext.skills.length?`\n\nEmployee skill snapshot (instructions only; grants no permissions or access):\n${resolvedContext.skills.map((skill:any)=>`- ${skill.name}: ${skill.instructions}`).join('\n')}`:'';
-  const executionPrompt=prompt+skillContext+guidanceContext;
+  const briefContext=task.brief_text?`\n\nSaved task brief:\n${task.brief_text}`:'';
+  const instructionContext=task.task_instructions?`\n\nTask-specific instructions:\n${task.task_instructions}`:'';
+  const inputContext=(task.inputs as any[]).length?`\n\nPersisted task inputs follow as separate ordered Codex input items. They are context, not filesystem permission:\n${(task.inputs as any[]).map((item)=>`[${item.input_id}] ${item.kind}: ${item.label}`).join('\n')}`:'';
+  const executionPrompt=prompt+briefContext+instructionContext+inputContext+skillContext+guidanceContext;
+  const explicitInputs=richTurnInputs(task,resolvedContext);
   // Revalidate after readiness's asynchronous probe; reserve synchronously before spawning.
   if (db.approvedPlanForTask(taskId)?.plan_id !== approvedPlan.plan_id) throw new ServiceError('PLAN_APPROVAL_REQUIRED', 'The plan changed during readiness; approve the current version.', {}, 409);
   db.measureHost();
   const started = db.startExecution({ task_id: taskId, employee_id: employeeId, purpose: executionPrompt, workspace_set: folders.map((folder) => folder.canonical_path), resolved_context:resolvedContext });
   execution = new CodexExecution(db, String(started.attempt_id), dataDir);
-  try { await execution.start(folders.map((folder) => folder.canonical_path), executionPrompt); }
+  try { await execution.start(folders.map((folder) => folder.canonical_path), executionPrompt, null, explicitInputs); }
   catch (error) { const failure = classifyCodexFailure(error); db.appendEvent(String(started.attempt_id), 'attempt.adapter_error', { code: failure.code, message: failure.message }); db.releaseExecution(String(started.attempt_id), failure.stopReason, 'lost'); execution = undefined; throw new ServiceError(failure.code, `${failure.message} The saved attempt was reconciled.`, {}, failure.status); }
   return db.executionDetail(String(started.attempt_id));
 }
@@ -87,8 +107,8 @@ async function resumeEligible() {
 const server = createServer(async (req, res) => {
   const id = requestId();
   try {
-    if (req.method === 'OPTIONS') { const requestHost = String(req.headers.host || '').split(':')[0]; if ((requestHost !== '127.0.0.1' && requestHost !== 'localhost') || req.headers.origin !== uiOrigin) throw new ServiceError('FORBIDDEN_ORIGIN', 'Request origin is not the launched local UI', {}, 403); res.writeHead(204, { 'Access-Control-Allow-Origin': uiOrigin, 'Access-Control-Allow-Headers': 'Content-Type, X-Pixel-Harness-Token', 'Access-Control-Allow-Methods': 'GET, POST, PATCH', Vary: 'Origin' }); return res.end(); }
-    const origin = authorize(req); const url = new URL(req.url || '/', `http://${host}:${port}`); const payload = ['POST', 'PATCH'].includes(req.method || '') ? await body(req) : {};
+    if (req.method === 'OPTIONS') { const requestHost = String(req.headers.host || '').split(':')[0]; if ((requestHost !== '127.0.0.1' && requestHost !== 'localhost') || req.headers.origin !== uiOrigin) throw new ServiceError('FORBIDDEN_ORIGIN', 'Request origin is not the launched local UI', {}, 403); res.writeHead(204, { 'Access-Control-Allow-Origin': uiOrigin, 'Access-Control-Allow-Headers': 'Content-Type, X-Pixel-Harness-Token', 'Access-Control-Allow-Methods': 'GET, POST, PATCH, PUT', Vary: 'Origin' }); return res.end(); }
+    const origin = authorize(req); const url = new URL(req.url || '/', `http://${host}:${port}`); const payload = ['POST', 'PATCH', 'PUT'].includes(req.method || '') ? await body(req) : {};
     let output: unknown;
     if (req.method === 'GET' && url.pathname === '/api/v1/projects') { for (const project of db.listProjects()) await refreshAvailability(project.project_id); output = db.listProjects().map((project) => db.projectDetail(project.project_id)); }
     else if (req.method === 'GET' && url.pathname === '/api/v1/codex/readiness') output = await codexReadiness();
@@ -117,6 +137,7 @@ const server = createServer(async (req, res) => {
     else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/archive$/.test(url.pathname)) output = db.setProjectStatus(url.pathname.split('/')[4], 'archived');
     else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/reopen$/.test(url.pathname)) output = db.setProjectStatus(url.pathname.split('/')[4], 'active');
     else if (req.method === 'PATCH' && /^\/api\/v1\/projects\/[^/]+\/delivery$/.test(url.pathname)) output = db.updateDelivery(url.pathname.split('/')[4], payload as { default_branch?: string | null; delivery_mode?: string; notes?: string });
+    else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/done$/.test(url.pathname)) output = db.markProjectDone(url.pathname.split('/')[4]);
     else if (req.method === 'POST' && /^\/api\/v1\/projects\/[^/]+\/folders$/.test(url.pathname)) { const path = await canonicalDirectory(payload.path); output = db.attachFolder(url.pathname.split('/')[4], path, String(payload.path)); }
     else if (req.method === 'POST' && /^\/api\/v1\/folders\/[^/]+\/relink$/.test(url.pathname)) { const path = await canonicalDirectory(payload.path); output = db.relinkFolder(url.pathname.split('/')[4], path, String(payload.path)); }
     else if (req.method === 'GET' && url.pathname === '/api/v1/folders/browse') output = await browseDirectory(url.searchParams.get('path'));
@@ -129,8 +150,23 @@ const server = createServer(async (req, res) => {
     else if (req.method === 'POST' && /^\/api\/v1\/staff\/[^/]+\/skills$/.test(url.pathname)) output = db.addEmployeeSkill(url.pathname.split('/')[4],payload as any);
     else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+\/skills\/[^/]+$/.test(url.pathname)) { const parts=url.pathname.split('/'); output=db.setEmployeeSkill(parts[4],parts[6],Boolean(payload.enabled)); }
     else if (req.method === 'PATCH' && /^\/api\/v1\/staff\/[^/]+\/appearance$/.test(url.pathname)) output = db.updateAppearance(url.pathname.split('/')[4], payload as Record<string, string>);
-    else if (req.method === 'POST' && url.pathname === '/api/v1/tasks') output = db.createTask(payload as { project_id: string; title: string; employee_id?: string; folder_ids: string[]; primary_folder_id: string });
+    else if (req.method === 'POST' && url.pathname === '/api/v1/tasks') output = db.createTask(payload as any);
+    else if (req.method === 'GET' && /^\/api\/v1\/tasks\/[^/]+\/thread$/.test(url.pathname)) { const thread=db.taskThread(url.pathname.split('/')[4]); if(!thread) throw new ServiceError('NOT_FOUND','Task not found',{},404); output=thread; }
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/thread\/messages$/.test(url.pathname)) output = db.addTaskThreadMessage(url.pathname.split('/')[4], payload as { body:string; save_as_team_agreement?:boolean });
+    else if (req.method === 'GET' && /^\/api\/v1\/tasks\/[^/]+\/demo$/.test(url.pathname)) output = db.demoForTask(url.pathname.split('/')[4]);
+    else if (req.method === 'PUT' && /^\/api\/v1\/tasks\/[^/]+\/demo$/.test(url.pathname)) output = db.saveDemoRecipe(url.pathname.split('/')[4], payload as any);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/demo\/evidence$/.test(url.pathname)) output = db.recordDemoEvidence(url.pathname.split('/')[4], payload as any);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/demo\/evidence\/[^/]+\/accept$/.test(url.pathname)) { const parts = url.pathname.split('/'); output = db.acceptDemoEvidence(parts[4], parts[7], String(payload.accepted_by || 'local user')); }
+    else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+\/draft$/.test(url.pathname)) output = db.saveTaskDraft(url.pathname.split('/')[4],payload as any);
+    else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+$/.test(url.pathname)) output = db.updateTaskDraft(url.pathname.split('/')[4],payload as any);
+    else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+\/assignment$/.test(url.pathname)) output = db.assignTask(url.pathname.split('/')[4],payload.employee_id?String(payload.employee_id):undefined);
+    else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+\/inputs$/.test(url.pathname)) output = db.replaceTaskInputs(url.pathname.split('/')[4],payload.inputs as any[]);
     else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/complete$/.test(url.pathname)) output = db.completeTask(url.pathname.split('/')[4]);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/cancel$/.test(url.pathname)) output = db.cancelTask(url.pathname.split('/')[4]);
+    else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+\/delivery$/.test(url.pathname)) output = db.setTaskDelivery(url.pathname.split('/')[4], payload as any);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/delivery$/.test(url.pathname)) output = db.beginDelivery(url.pathname.split('/')[4]);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/delivery\/execute$/.test(url.pathname)) output = await executeDelivery(db, url.pathname.split('/')[4], payload.confirmed === true);
+    else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/delivery\/outcome$/.test(url.pathname)) output = db.recordDeliveryOutcome(url.pathname.split('/')[4], payload as any);
     else if (req.method === 'POST' && /^\/api\/v1\/tasks\/[^/]+\/reopen$/.test(url.pathname)) output = db.reopenTask(url.pathname.split('/')[4]);
     else if (req.method === 'PATCH' && /^\/api\/v1\/tasks\/[^/]+\/folders$/.test(url.pathname)) output = db.updateTaskFolders(url.pathname.split('/')[4], payload as { folder_ids: string[]; primary_folder_id: string });
     else if (req.method === 'GET' && url.pathname === '/api/v1/office/preferences') output = db.preferences();
