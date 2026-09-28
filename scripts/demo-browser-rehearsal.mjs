@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { setTimeout as sleep } from 'node:timers/promises';
 
 const root = resolve(import.meta.dirname, '..');
-const output = resolve(root, 'docs/evidence/3H');
+const output = resolve(root, '.pixel-harness-demo/evidence');
 const portSeed = 4500 + (process.pid % 1000);
 const servicePort = portSeed;
 const uiPort = portSeed + 1000;

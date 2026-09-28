@@ -1,6 +1,6 @@
 # Studio v3 sources
 
-Generated with the built-in imagegen tool, September 13, 2026. Art direction reference: `docs/design/concepts/0A-treatment-a-warm-studio-v1.png` (also reattached by the user in the task). These are reusable asset atlases; no full-room concept raster is rendered as the application.
+Generated with the built-in imagegen tool, September 13, 2026. The art direction is a warm, top-down pixel studio with walnut, amber, moss, and charcoal materials. These are reusable asset atlases; no full-room concept raster is rendered as the application.
 
 ## Prompt set
 

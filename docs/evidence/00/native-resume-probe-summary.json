@@ -1,7 +1,0 @@
-{
-  "startedAt": "2026-09-12T19:09:24.235Z",
-  "workspace": "$TMP/pixel-harness-native-resume",
-  "error": "process/resizePty: {\"code\":-32600,\"message\":\"no active process for process handle \\\"native-resume-tui\\\"\"}",
-  "finishedAt": "2026-09-12T19:09:34.757Z",
-  "stderr": "{\"timestamp\":\"2026-09-12T19:09:24.291182Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T19:09:24.291221Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T19:09:24.698884Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_small: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n{\"timestamp\":\"2026-09-12T19:09:24.698904Z\",\"level\":\"WARN\",\"fields\":{\"message\":\"ignoring interface.icon_large: icon path with '..' must resolve under plugin assets/\"},\"target\":\"codex_skills::interface\"}\n"
-}

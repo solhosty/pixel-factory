@@ -4,7 +4,7 @@ Pixel Harness is a local-first pixel office for coordinating coding work through
 
 It is a browser-first development project for macOS and Node 26+. It is not a hosted service, a packaged desktop application, or an autonomous multi-agent scheduler.
 
-![Pixel Harness Studio](docs/evidence/3H/desktop-studio.png)
+![Pixel Harness Studio](static/pixel-harness-studio.png)
 
 ## What it demonstrates
 
@@ -13,7 +13,7 @@ It is a browser-first development project for macOS and Node 26+. It is not a ho
 - Explicit task scopes and approval gates before Codex execution or delivery; saved session history is visibly distinct from an attached native terminal.
 - Reproducible fixture and browser rehearsals for the Studio, task workspace, board, Inbox, reduced-motion controls, and responsive layouts.
 
-See the [project specification](MILESTONES.md), [execution ledger](docs/execution/STATUS.md), and [demo evidence](docs/evidence/README.md) for the implemented scope and its verification record.
+The implementation covers the local Studio, task workspace, Inbox, decision gates, delivery review, and reproducible demo fixture. Future work such as multi-harness isolation, parallel scheduling, and remote Coder support is deliberately out of scope.
 
 ## Quick start
 
@@ -47,7 +47,7 @@ npm run build
 
 ## Privacy and execution boundaries
 
-Pixel Harness does not persist provider tokens, cookies, private keys, or source-file contents as task evidence. Local folder paths and task metadata are stored in the local database; do not share a personal runtime database. The checked-in demo can always be regenerated with `npm run demo:fixture`.
+Pixel Harness does not persist provider tokens, cookies, private keys, or source-file contents as task evidence. Local folder paths and task metadata are stored in the local database; do not share a personal runtime database. The disposable demo can always be regenerated with `npm run demo:fixture`.
 
 The app never starts a Codex task simply by creating or assigning one. A current plan must be explicitly approved, selected folders must be available, and execution is launched by an explicit local action. Delivery and merging are separate, explicit operations.
 
