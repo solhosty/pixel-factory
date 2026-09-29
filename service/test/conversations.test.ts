@@ -83,6 +83,7 @@ test('persisted acceptance fixture survives service restart with ordered context
 
 test('one employee can retain two task workspaces while capacity queues the second session', () => {
   const root=mkdtempSync(join(tmpdir(),'pixel-3g-')), db=new PixelDatabase(join(root,'state.sqlite'));
+  db.measureHost('local',{cpu:8,total:16*1024**3,available:16*1024**3,measured_at:Date.now(),source:'deterministic test capacity sample'});
   const project=db.createProject('Two task fixture'), one=join(root,'one'), two=join(root,'two'), three=join(root,'three'); mkdirSync(one);mkdirSync(two);mkdirSync(three);
   const firstFolder=db.attachFolder(project.project_id,one,one), secondFolder=db.attachFolder(project.project_id,two,two), thirdFolder=db.attachFolder(project.project_id,three,three), employee=db.createEmployee({name:'Mina'});
   const first=db.createTask({project_id:project.project_id,title:'First workspace',employee_id:employee.employee_id,folder_ids:[firstFolder.folder_id,secondFolder.folder_id],primary_folder_id:firstFolder.folder_id});
